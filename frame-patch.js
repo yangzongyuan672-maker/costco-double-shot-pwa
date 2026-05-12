@@ -2,38 +2,54 @@
   const originalToBlob = HTMLCanvasElement.prototype.toBlob;
 
   function strokeCard(ctx, width, height) {
-    const dividerY = Math.round(height * 0.73);
+    const dividerY = height === 600 ? 430 : Math.round(height * 0.73);
     ctx.save();
     ctx.strokeStyle = "#111827";
-    ctx.lineWidth = 8;
-    ctx.strokeRect(8, 8, width - 16, height - 16);
-    ctx.lineWidth = 6;
-    ctx.beginPath();
-    ctx.moveTo(12, dividerY);
-    ctx.lineTo(width - 12, dividerY);
-    ctx.stroke();
-    ctx.strokeStyle = "#cbd5e1";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(16, dividerY + 12, width - 32, height - dividerY - 28);
+    ctx.lineWidth = 10;
+    ctx.strokeRect(5, 5, width - 10, height - 10);
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(10, dividerY, width - 20, 4);
     ctx.restore();
   }
 
   function strokeGrid(ctx, width, height) {
-    const pad = 24;
-    const gap = 10;
-    const watermarkH = 54;
+    const oldPad = 24;
+    const oldGap = 10;
+    const oldWatermarkH = 54;
+    const oldCellW = Math.floor((width - oldPad * 2 - oldGap * 2) / 3);
+    const oldContentH = height - oldPad * 2 - oldWatermarkH;
+    const oldCellH = Math.floor((oldContentH - oldGap * 2) / 3);
+    const copy = document.createElement("canvas");
+    copy.width = width;
+    copy.height = height;
+    copy.getContext("2d").drawImage(ctx.canvas, 0, 0);
+
+    const pad = 10;
+    const gap = 8;
     const cellW = Math.floor((width - pad * 2 - gap * 2) / 3);
-    const contentH = height - pad * 2 - watermarkH;
-    const cellH = Math.floor((contentH - gap * 2) / 3);
+    const cellH = Math.floor((height - pad * 2 - gap * 2) / 3);
+
     ctx.save();
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, width, height);
+    for (let index = 0; index < 9; index += 1) {
+      const col = index % 3;
+      const row = Math.floor(index / 3);
+      const oldX = oldPad + col * (oldCellW + oldGap);
+      const oldY = oldPad + row * (oldCellH + oldGap);
+      const x = pad + col * (cellW + gap);
+      const y = pad + row * (cellH + gap);
+      ctx.drawImage(copy, oldX, oldY, oldCellW, oldCellH, x, y, cellW, cellH);
+    }
+
     ctx.strokeStyle = "#111827";
-    ctx.lineWidth = 6;
+    ctx.lineWidth = 5;
     for (let index = 0; index < 9; index += 1) {
       const col = index % 3;
       const row = Math.floor(index / 3);
       const x = pad + col * (cellW + gap);
       const y = pad + row * (cellH + gap);
-      ctx.strokeRect(x + 3, y + 3, cellW - 6, cellH - 6);
+      ctx.strokeRect(x + 2, y + 2, cellW - 4, cellH - 4);
     }
     ctx.restore();
   }
