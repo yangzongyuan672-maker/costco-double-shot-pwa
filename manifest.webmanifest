@@ -1,0 +1,18 @@
+{
+  "name": "Costco 双拍采集器",
+  "short_name": "Costco双拍",
+  "description": "商品图和价格牌双拍配对，自动生成单商品卡和小红书九宫格。",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#111827",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
