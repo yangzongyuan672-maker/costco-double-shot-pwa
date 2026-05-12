@@ -2,13 +2,13 @@
   const originalToBlob = HTMLCanvasElement.prototype.toBlob;
 
   function strokeCard(ctx, width, height) {
-    const dividerY = height === 600 ? 430 : Math.round(height * 0.73);
+    const dividerY = Math.round(height * 0.72);
     ctx.save();
-    ctx.strokeStyle = "#111827";
-    ctx.lineWidth = 10;
-    ctx.strokeRect(5, 5, width - 10, height - 10);
+    ctx.strokeStyle = "#4b5563";
+    ctx.lineWidth = 5;
+    ctx.strokeRect(2.5, 2.5, width - 5, height - 5);
     ctx.fillStyle = "#fff";
-    ctx.fillRect(10, dividerY, width - 20, 4);
+    ctx.fillRect(5, dividerY - 1, width - 10, 2);
     ctx.restore();
   }
 
@@ -24,7 +24,7 @@
     copy.height = height;
     copy.getContext("2d").drawImage(ctx.canvas, 0, 0);
 
-    const pad = 10;
+    const pad = 14;
     const gap = 8;
     const cellW = Math.floor((width - pad * 2 - gap * 2) / 3);
     const cellH = Math.floor((height - pad * 2 - gap * 2) / 3);
@@ -42,15 +42,6 @@
       ctx.drawImage(copy, oldX, oldY, oldCellW, oldCellH, x, y, cellW, cellH);
     }
 
-    ctx.strokeStyle = "#111827";
-    ctx.lineWidth = 5;
-    for (let index = 0; index < 9; index += 1) {
-      const col = index % 3;
-      const row = Math.floor(index / 3);
-      const x = pad + col * (cellW + gap);
-      const y = pad + row * (cellH + gap);
-      ctx.strokeRect(x + 2, y + 2, cellW - 4, cellH - 4);
-    }
     ctx.restore();
   }
 
