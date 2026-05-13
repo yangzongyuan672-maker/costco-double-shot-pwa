@@ -91,7 +91,7 @@
 
   function strokeCard(ctx, width, height) {
     const dividerY = Math.round(height * 0.72);
-    const titleH = Math.round(height * 0.085);
+    const titleH = Math.round(height * 0.09);
     ctx.save();
     ctx.strokeStyle = "#4b5563";
     ctx.lineWidth = 3;
@@ -118,7 +118,7 @@
     const cellH = Math.floor((height - pad * 2 - gap * 2) / 3);
     const titles = getTitles();
     const groupNo = Math.max(1, Math.ceil(titles.length / 9));
-    const titleH = Math.round(cellH * 0.095);
+    const titleH = Math.round(cellH * 0.1);
 
     ctx.save();
     ctx.fillStyle = "#fff";
@@ -149,20 +149,11 @@
     ctx.stroke();
 
     const badgeText = `第${String(groupNo).padStart(2, "0")}组`;
-    ctx.font = "800 26px system-ui, sans-serif";
-    const badgeW = Math.ceil(ctx.measureText(badgeText).width) + 28;
-    const badgeH = 38;
-    const badgeX = width - badgeW - 10;
-    const badgeY = height - badgeH - 10;
-    ctx.fillStyle = "rgba(250, 204, 21, 0.96)";
-    ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
-    ctx.strokeStyle = "#4b5563";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(badgeX + 1.5, badgeY + 1.5, badgeW - 3, badgeH - 3);
-    ctx.fillStyle = "#111827";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(badgeText, badgeX + badgeW / 2, badgeY + badgeH / 2 + 1);
+    ctx.font = "20px system-ui, sans-serif";
+    ctx.fillStyle = "rgba(17, 24, 39, 0.72)";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "bottom";
+    ctx.fillText(badgeText, width - 10, height - 8);
 
     ctx.restore();
   }
