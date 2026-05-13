@@ -96,7 +96,7 @@
     ctx.strokeStyle = "#4b5563";
     ctx.lineWidth = 3;
     ctx.strokeRect(1.5, 1.5, width - 3, height - 3);
-    drawTitleBar(ctx, 3, dividerY - titleH, width - 6, titleH, currentTitle());
+    drawTitleBar(ctx, 3, dividerY - titleH + 8, width - 6, titleH, currentTitle());
     ctx.restore();
   }
 
@@ -131,7 +131,7 @@
       const x = pad + col * (cellW + gap);
       const y = pad + row * (cellH + gap);
       ctx.drawImage(copy, oldX + 6, oldY + 6, oldCellW - 12, oldCellH - 12, x, y, cellW, cellH);
-      drawTitleBar(ctx, x + 2, y + Math.round(cellH * 0.72) - titleH, cellW - 4, titleH, titles[index]);
+      drawTitleBar(ctx, x + 2, y + Math.round(cellH * 0.72) - titleH + 8, cellW - 4, titleH, titles[index]);
     }
 
     ctx.strokeStyle = "#4b5563";
