@@ -2,13 +2,13 @@ const DB_NAME = "costco-double-shot-db";
 const DB_VERSION = 1;
 const STORE = "kv";
 const STATE_KEY = "state";
-const CARD_W = 400;
-const CARD_H = 600;
-const GRID_W = 1080;
-const GRID_H = 1440;
-const GRID_GAP = 10;
-const GRID_PAD = 24;
-const WATERMARK_H = 54;
+const CARD_W = 414;
+const CARD_H = 553;
+const GRID_W = 1242;
+const GRID_H = 1660;
+const GRID_GAP = 0;
+const GRID_PAD = 0;
+const WATERMARK_H = 0;
 
 const initialState = {
   taskName: "",
@@ -272,7 +272,7 @@ function renderCapture() {
       <section class="stack">
         <div class="preview-grid">
           <div class="preview">${productUrl ? `<img src="${productUrl}" alt="商品图">` : "等待商品图"}</div>
-          <div class="preview">${priceUrl ? `<img src="${priceUrl}" alt="价格牌图">` : "等待价格牌"}</div>
+          <div class="preview">${priceUrl ? `<img src="${priceUrl}" alt="价格标签图">` : "等待价格标签"}</div>
         </div>
 
         ${cardUrl ? `<div class="card-preview"><img src="${cardUrl}" alt="单商品卡"></div>` : ""}
@@ -457,21 +457,22 @@ async function makeProductCard(productBlob, priceBlob) {
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, CARD_W, CARD_H);
 
-  const dividerY = Math.round(CARD_H * 0.72);
-  const priceH = CARD_H - dividerY;
+  const priceH = Math.round(CARD_H * 0.35);
+  const productY = priceH;
+  const productH = CARD_H - productY;
 
   ctx.save();
   ctx.beginPath();
-  ctx.rect(0, 0, CARD_W, dividerY);
+  ctx.rect(0, 0, CARD_W, priceH);
   ctx.clip();
-  drawCover(ctx, product, 0, 0, CARD_W, dividerY);
+  drawCover(ctx, price, 0, 0, CARD_W, priceH, 0.5, 0.66);
   ctx.restore();
 
   ctx.save();
   ctx.beginPath();
-  ctx.rect(0, dividerY, CARD_W, priceH);
+  ctx.rect(0, productY, CARD_W, productH);
   ctx.clip();
-  drawCover(ctx, price, 0, dividerY, CARD_W, priceH);
+  drawCover(ctx, product, 0, productY, CARD_W, productH);
   ctx.restore();
 
   product.close?.();
@@ -487,15 +488,15 @@ async function makeGrid(items) {
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, GRID_W, GRID_H);
 
-  const cellW = Math.floor((GRID_W - GRID_PAD * 2 - GRID_GAP * 2) / 3);
-  const contentH = GRID_H - GRID_PAD * 2 - WATERMARK_H;
-  const cellH = Math.floor((contentH - GRID_GAP * 2) / 3);
-
   for (let index = 0; index < 9; index += 1) {
     const col = index % 3;
     const row = Math.floor(index / 3);
-    const x = GRID_PAD + col * (cellW + GRID_GAP);
-    const y = GRID_PAD + row * (cellH + GRID_GAP);
+    const x = Math.round((GRID_W / 3) * col);
+    const y = Math.round((GRID_H / 3) * row);
+    const nextX = Math.round((GRID_W / 3) * (col + 1));
+    const nextY = Math.round((GRID_H / 3) * (row + 1));
+    const cellW = nextX - x;
+    const cellH = nextY - y;
     ctx.fillStyle = "#f8fafc";
     ctx.fillRect(x, y, cellW, cellH);
     const item = items[index];
@@ -506,20 +507,15 @@ async function makeGrid(items) {
     }
   }
 
-  ctx.fillStyle = "#111827";
-  ctx.font = "700 30px system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("值得买加拿大站", GRID_W / 2, GRID_H - 31);
   return canvasToBlob(canvas, 0.92);
 }
 
-function drawCover(ctx, bitmap, x, y, width, height) {
+function drawCover(ctx, bitmap, x, y, width, height, focusX = 0.5, focusY = 0.5) {
   const scale = Math.max(width / bitmap.width, height / bitmap.height);
   const sourceW = width / scale;
   const sourceH = height / scale;
-  const sourceX = (bitmap.width - sourceW) / 2;
-  const sourceY = (bitmap.height - sourceH) / 2;
+  const sourceX = Math.min(Math.max((bitmap.width - sourceW) * focusX, 0), bitmap.width - sourceW);
+  const sourceY = Math.min(Math.max((bitmap.height - sourceH) * focusY, 0), bitmap.height - sourceH);
   ctx.drawImage(bitmap, sourceX, sourceY, sourceW, sourceH, x, y, width, height);
 }
 
