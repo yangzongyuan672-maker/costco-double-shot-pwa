@@ -37,7 +37,7 @@
     ctx.fillStyle = "#111827";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    const fontSize = fitText(ctx, title, width - 16, Math.floor(height * 0.54), 16);
+    const fontSize = fitText(ctx, title, width - 14, Math.floor(height * 0.62), 18);
     ctx.font = `800 ${fontSize}px system-ui, sans-serif`;
     ctx.fillText(title, x + width / 2, y + height / 2 + 1);
     ctx.restore();
@@ -91,13 +91,12 @@
 
   function strokeCard(ctx, width, height) {
     const dividerY = Math.round(height * 0.72);
+    const titleH = Math.round(height * 0.085);
     ctx.save();
     ctx.strokeStyle = "#4b5563";
     ctx.lineWidth = 3;
     ctx.strokeRect(1.5, 1.5, width - 3, height - 3);
-    drawTitleBar(ctx, 4, dividerY - 38, width - 8, 36, currentTitle());
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(4, dividerY - 1, width - 8, 2);
+    drawTitleBar(ctx, 3, dividerY - titleH, width - 6, titleH, currentTitle());
     ctx.restore();
   }
 
@@ -118,6 +117,8 @@
     const cellW = Math.floor((width - pad * 2 - gap * 2) / 3);
     const cellH = Math.floor((height - pad * 2 - gap * 2) / 3);
     const titles = getTitles();
+    const groupNo = Math.max(1, Math.ceil(titles.length / 9));
+    const titleH = Math.round(cellH * 0.095);
 
     ctx.save();
     ctx.fillStyle = "#fff";
@@ -130,7 +131,7 @@
       const x = pad + col * (cellW + gap);
       const y = pad + row * (cellH + gap);
       ctx.drawImage(copy, oldX + 6, oldY + 6, oldCellW - 12, oldCellH - 12, x, y, cellW, cellH);
-      drawTitleBar(ctx, x + 4, y + Math.round(cellH * 0.72) - 34, cellW - 8, 32, titles[index]);
+      drawTitleBar(ctx, x + 2, y + Math.round(cellH * 0.72) - titleH, cellW - 4, titleH, titles[index]);
     }
 
     ctx.strokeStyle = "#4b5563";
@@ -146,6 +147,22 @@
     ctx.moveTo(0, cellH * 2);
     ctx.lineTo(width, cellH * 2);
     ctx.stroke();
+
+    const badgeText = `第${String(groupNo).padStart(2, "0")}组`;
+    ctx.font = "800 26px system-ui, sans-serif";
+    const badgeW = Math.ceil(ctx.measureText(badgeText).width) + 28;
+    const badgeH = 38;
+    const badgeX = width - badgeW - 10;
+    const badgeY = height - badgeH - 10;
+    ctx.fillStyle = "rgba(250, 204, 21, 0.96)";
+    ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
+    ctx.strokeStyle = "#4b5563";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(badgeX + 1.5, badgeY + 1.5, badgeW - 3, badgeH - 3);
+    ctx.fillStyle = "#111827";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(badgeText, badgeX + badgeW / 2, badgeY + badgeH / 2 + 1);
 
     ctx.restore();
   }
