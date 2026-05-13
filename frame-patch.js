@@ -19,6 +19,50 @@
     return (localStorage.getItem(TITLE_KEY) || "").trim();
   }
 
+  function imageBlobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(reader.error || new Error("图片读取失败"));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function priceImageDataUrl() {
+    const previewImages = Array.from(document.querySelectorAll(".preview img"));
+    const priceImage = previewImages[1];
+    if (!priceImage?.src) throw new Error("请先拍价格标签图");
+    const response = await fetch(priceImage.src);
+    const blob = await response.blob();
+    return imageBlobToDataUrl(blob);
+  }
+
+  async function generateTitle(button) {
+    const input = document.getElementById("titleZh");
+    if (!input) return;
+    const oldText = button.textContent;
+    button.disabled = true;
+    button.textContent = "识别中...";
+    try {
+      const image = await priceImageDataUrl();
+      const endpoint = window.COSTCO_AI_ENDPOINT || "/api/generate-title";
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "AI 识别失败");
+      input.value = data.title || "";
+      localStorage.setItem(TITLE_KEY, input.value.trim());
+    } catch (error) {
+      alert(error.message || "AI 识别失败");
+    } finally {
+      button.disabled = false;
+      button.textContent = oldText;
+    }
+  }
+
   function fitText(ctx, text, maxWidth, maxSize, minSize) {
     let size = maxSize;
     while (size > minSize) {
@@ -52,12 +96,16 @@
     field.innerHTML = `
       <label for="titleZh">中文商品名</label>
       <input id="titleZh" class="input" placeholder="例如：三件装收纳盒" />
+      <button id="aiTitleBtn" class="btn warn" type="button">AI生成中文名</button>
     `;
     note.closest(".field")?.before(field);
     const input = field.querySelector("input");
     input.value = currentTitle();
     input.addEventListener("input", () => {
       localStorage.setItem(TITLE_KEY, input.value.trim());
+    });
+    field.querySelector("#aiTitleBtn")?.addEventListener("click", (event) => {
+      generateTitle(event.currentTarget);
     });
   }
 
