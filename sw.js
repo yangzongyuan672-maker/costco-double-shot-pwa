@@ -1,4 +1,4 @@
-const CACHE_NAME = "costco-double-shot-v7";
+const CACHE_NAME = "costco-double-shot-v8";
 const APP_SHELL = [
   "./",
   "./index.html",
