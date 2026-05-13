@@ -453,12 +453,27 @@ async function makeProductCard(productBlob, priceBlob) {
   canvas.width = CARD_W;
   canvas.height = CARD_H;
   const ctx = canvas.getContext("2d", { alpha: false });
+
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, CARD_W, CARD_H);
-  drawCover(ctx, product, 0, 0, CARD_W, 430);
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 430, CARD_W, 8);
-  drawCover(ctx, price, 0, 438, CARD_W, 162);
+
+  const dividerY = Math.round(CARD_H * 0.72);
+  const priceH = CARD_H - dividerY;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, CARD_W, dividerY);
+  ctx.clip();
+  drawCover(ctx, product, 0, 0, CARD_W, dividerY);
+  ctx.restore();
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, dividerY, CARD_W, priceH);
+  ctx.clip();
+  drawCover(ctx, price, 0, dividerY, CARD_W, priceH);
+  ctx.restore();
+
   product.close?.();
   price.close?.();
   return canvasToBlob(canvas, 0.9);
@@ -506,6 +521,26 @@ function drawCover(ctx, bitmap, x, y, width, height) {
   const sourceX = (bitmap.width - sourceW) / 2;
   const sourceY = (bitmap.height - sourceH) / 2;
   ctx.drawImage(bitmap, sourceX, sourceY, sourceW, sourceH, x, y, width, height);
+}
+
+function drawContain(ctx, bitmap, x, y, width, height) {
+  const scale = Math.min(width / bitmap.width, height / bitmap.height);
+  const drawW = bitmap.width * scale;
+  const drawH = bitmap.height * scale;
+  const drawX = x + (width - drawW) / 2;
+  const drawY = y + (height - drawH) / 2;
+  ctx.drawImage(bitmap, drawX, drawY, drawW, drawH);
+}
+
+function roundRect(ctx, x, y, width, height, radius) {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
+  ctx.closePath();
 }
 
 function canvasToBlob(canvas, quality) {
