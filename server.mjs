@@ -60,6 +60,39 @@ function cleanTitle(value) {
     .slice(0, 20);
 }
 
+function titlePrompt() {
+  return [
+    "你是加拿大 Costco 价格标签识别助手。",
+    "请读取图片里的英文商品名称，只输出适合小红书图片标题的中文商品名。",
+    "规则：不要品牌名，不要型号，不要商品编号，不要价格；可以保留几件装、容量、口味、规格；如果看不清，输出空字符串。",
+    "只输出中文商品名本身，最多 12 个中文字符。"
+  ].join("\n");
+}
+
+async function callOpenAI(content, maxOutputTokens) {
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model,
+      input: [{ role: "user", content }],
+      max_output_tokens: maxOutputTokens,
+      store: false
+    })
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    const message = data.error?.message || "AI 识别失败";
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
 async function handleGenerateTitle(req, res) {
   if (req.method === "OPTIONS") {
     sendJson(res, 204, {});
@@ -82,43 +115,64 @@ async function handleGenerateTitle(req, res) {
       return;
     }
 
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model,
-        input: [{
-          role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: [
-                "你是加拿大 Costco 价格标签识别助手。",
-                "请读取图片里的英文商品名称，只输出适合小红书图片标题的中文商品名。",
-                "规则：不要品牌名，不要型号，不要商品编号，不要价格；可以保留几件装/容量/口味/规格；如果看不清，输出空字符串。",
-                "只输出中文商品名本身，最多 12 个中文字符。"
-              ].join("\n")
-            },
-            { type: "input_image", image_url: image, detail: "high" }
-          ]
-        }],
-        max_output_tokens: 80,
-        store: false
-      })
-    });
-
-    const data = await response.json();
-    if (!response.ok) {
-      sendJson(res, response.status, { error: data.error?.message || "AI 识别失败" });
-      return;
-    }
+    const data = await callOpenAI([
+      { type: "input_text", text: titlePrompt() },
+      { type: "input_image", image_url: image, detail: "high" }
+    ], 80);
 
     sendJson(res, 200, { title: cleanTitle(extractOutputText(data)), model });
   } catch (error) {
-    sendJson(res, 500, { error: error.message || "AI 识别失败" });
+    sendJson(res, error.status || 500, { error: error.message || "AI 识别失败" });
+  }
+}
+
+async function handleGenerateTitles(req, res) {
+  if (req.method === "OPTIONS") {
+    sendJson(res, 204, {});
+    return;
+  }
+  if (req.method !== "POST") {
+    sendJson(res, 405, { error: "Method not allowed" });
+    return;
+  }
+  if (!apiKey) {
+    sendJson(res, 500, { error: "Railway 还没有设置 OPENAI_API_KEY" });
+    return;
+  }
+
+  try {
+    const body = await readJson(req);
+    const images = Array.isArray(body.images) ? body.images.slice(0, 9).map(String) : [];
+    if (!images.length || images.some((image) => !image.startsWith("data:image/"))) {
+      sendJson(res, 400, { error: "请先提供本组价格标签图" });
+      return;
+    }
+
+    const content = [
+      {
+        type: "input_text",
+        text: [
+          "你是加拿大 Costco 价格标签识别助手。",
+          "下面是同一组商品的价格标签图。请分别读取英文商品名称，并翻译成适合小红书九宫格黄色标题条的中文商品名。",
+          "规则：不要品牌名，不要型号，不要商品编号，不要价格；可以保留几件装、容量、口味、规格；看不清就输出空字符串。",
+          `请严格输出 JSON 数组，长度必须是 ${images.length}，数组元素只放中文商品名，每个最多 12 个中文字符。`
+        ].join("\n")
+      },
+      ...images.map((image) => ({ type: "input_image", image_url: image, detail: "high" }))
+    ];
+
+    const data = await callOpenAI(content, 220);
+    const text = extractOutputText(data).replace(/```json|```/g, "").trim();
+    let titles;
+    try {
+      titles = JSON.parse(text);
+    } catch {
+      titles = text.split(/\r?\n/).map((line) => line.replace(/^\s*\d+[.、)\-]\s*/, ""));
+    }
+    titles = Array.from({ length: images.length }, (_, index) => cleanTitle(titles[index] || ""));
+    sendJson(res, 200, { titles, model });
+  } catch (error) {
+    sendJson(res, error.status || 500, { error: error.message || "AI 批量识别失败" });
   }
 }
 
@@ -148,6 +202,10 @@ createServer(async (req, res) => {
   const url = new URL(req.url || "/", "http://localhost");
   if (url.pathname === "/api/generate-title") {
     await handleGenerateTitle(req, res);
+    return;
+  }
+  if (url.pathname === "/api/generate-titles") {
+    await handleGenerateTitles(req, res);
     return;
   }
   await handleStatic(req, res);
