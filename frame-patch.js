@@ -5,6 +5,8 @@
   const TITLE_YELLOW = "#facc15";
   const GRID_PINK = "#ff4fa3";
   const TEXT_DARK = "#111827";
+  const TITLE_INSET_X = 8;
+  const TITLE_INSET_Y = 6;
 
   function getTitles() {
     try {
@@ -160,7 +162,14 @@
 
   function decorateCard(ctx, width, height) {
     const titleH = Math.round(height * 0.105);
-    drawTitleBar(ctx, 0, 0, width, titleH, currentTitle());
+    drawTitleBar(
+      ctx,
+      TITLE_INSET_X,
+      TITLE_INSET_Y,
+      width - TITLE_INSET_X * 2,
+      titleH,
+      currentTitle()
+    );
   }
 
   function decorateGrid(ctx, width, height) {
