@@ -3,6 +3,7 @@
   const TITLE_KEY = "costco_title_current";
   const TITLES_KEY = "costco_title_queue";
   const TITLE_YELLOW = "#facc15";
+  const GRID_PINK = "#ff4fa3";
   const TEXT_DARK = "#111827";
 
   function getTitles() {
@@ -111,6 +112,19 @@
     });
   }
 
+  function installCaptureActionRow() {
+    const product = document.getElementById("productShot");
+    const price = document.getElementById("priceShot");
+    const save = document.getElementById("saveNext");
+    if (!product || !price || !save) return;
+    if (product.parentElement?.classList.contains("capture-action-row")) return;
+
+    const row = document.createElement("div");
+    row.className = "capture-action-row";
+    product.before(row);
+    row.append(product, price, save);
+  }
+
   document.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
@@ -133,11 +147,16 @@
     }
   }, true);
 
-  new MutationObserver(installTitleField).observe(document.documentElement, {
+  function installCaptureEnhancements() {
+    installTitleField();
+    installCaptureActionRow();
+  }
+
+  new MutationObserver(installCaptureEnhancements).observe(document.documentElement, {
     childList: true,
     subtree: true
   });
-  document.addEventListener("DOMContentLoaded", installTitleField);
+  document.addEventListener("DOMContentLoaded", installCaptureEnhancements);
 
   function decorateCard(ctx, width, height) {
     const titleH = Math.round(height * 0.105);
@@ -150,7 +169,7 @@
     const lineW = 4;
 
     ctx.save();
-    ctx.strokeStyle = TITLE_YELLOW;
+    ctx.strokeStyle = GRID_PINK;
     ctx.lineWidth = lineW;
     ctx.beginPath();
     for (let col = 0; col <= 3; col += 1) {
