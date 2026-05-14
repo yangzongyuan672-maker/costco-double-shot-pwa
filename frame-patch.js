@@ -5,8 +5,8 @@
   const TITLE_YELLOW = "#facc15";
   const GRID_PINK = "#ff4fa3";
   const TEXT_DARK = "#111827";
-  const TITLE_INSET_X = 8;
-  const TITLE_INSET_Y = 6;
+  const TITLE_INSET_X = 25;
+  const TITLE_INSET_Y = 18;
 
   function getTitles() {
     try {
@@ -175,7 +175,7 @@
   function decorateGrid(ctx, width, height) {
     const titles = getTitles();
     const groupNo = Math.max(1, Math.ceil(titles.length / 9));
-    const lineW = 4;
+    const lineW = 5;
 
     ctx.save();
     ctx.strokeStyle = GRID_PINK;
