@@ -17,6 +17,15 @@ const types = {
   ".webmanifest": "application/manifest+json"
 };
 
+const messages = {
+  tooLarge: "\u56fe\u7247\u592a\u5927\uff0c\u8bf7\u91cd\u62cd\u6216\u538b\u7f29\u540e\u518d\u8bc6\u522b",
+  noKey: "Railway \u8fd8\u6ca1\u6709\u8bbe\u7f6e OPENAI_API_KEY",
+  noPrice: "\u8bf7\u5148\u62cd\u4ef7\u683c\u6807\u7b7e\u56fe",
+  noGroupPrices: "\u8bf7\u5148\u63d0\u4f9b\u672c\u7ec4\u4ef7\u683c\u6807\u7b7e\u56fe",
+  aiFailed: "AI \u8bc6\u522b\u5931\u8d25",
+  batchFailed: "AI \u6279\u91cf\u8bc6\u522b\u5931\u8d25"
+};
+
 function sendJson(res, status, data) {
   res.writeHead(status, {
     "Content-Type": "application/json;charset=utf-8",
@@ -32,7 +41,7 @@ async function readJson(req) {
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > maxBodyBytes) throw new Error("图片太大，请重拍或压缩后再识别");
+    if (size > maxBodyBytes) throw new Error(messages.tooLarge);
     chunks.push(chunk);
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
@@ -52,20 +61,23 @@ function extractOutputText(response) {
 function cleanTitle(value) {
   return String(value || "")
     .replace(/```json|```/g, "")
-    .replace(/["“”]/g, "")
-    .replace(/^中文商品名[:：]\s*/i, "")
+    .replace(/["\u201c\u201d]/g, "")
+    .replace(/^\u4e2d\u6587\u5546\u54c1\u540d[:\uff1a]\s*/i, "")
     .trim()
     .split(/\r?\n/)[0]
-    .replace(/[。.,，;；]+$/g, "")
+    .replace(/[\u3002.,\uff0c;\uff1b]+$/g, "")
     .slice(0, 20);
 }
 
 function titlePrompt() {
   return [
-    "你是加拿大 Costco 价格标签识别助手。",
-    "请读取图片里的英文商品名称，只输出适合小红书图片标题的中文商品名。",
-    "规则：不要品牌名，不要型号，不要商品编号，不要价格；可以保留几件装、容量、口味、规格；如果看不清，输出空字符串。",
-    "只输出中文商品名本身，最多 12 个中文字符。"
+    "You identify Costco Canada price tags.",
+    "Read the English product name on this single price tag and return one concise Simplified Chinese product title for a Xiaohongshu image label.",
+    "Do not include brand, model number, item number, or price.",
+    "Keep useful pack count, quantity, flavor, size, or capacity.",
+    "Never return only a package count such as 3-pack. Include the product type too.",
+    "Example: SWEET DREAMS LIP OIL MASK 3 Pack -> \u5507\u90e8\u6cb9\u819c3\u4ef6\u88c5.",
+    "Return only the Chinese product title, maximum 12 Chinese characters when possible. If unreadable, return an empty string."
   ].join("\n");
 }
 
@@ -85,12 +97,20 @@ async function callOpenAI(content, maxOutputTokens) {
   });
   const data = await response.json();
   if (!response.ok) {
-    const message = data.error?.message || "AI 识别失败";
+    const message = data.error?.message || messages.aiFailed;
     const error = new Error(message);
     error.status = response.status;
     throw error;
   }
   return data;
+}
+
+async function recognizeOneTitle(image) {
+  const data = await callOpenAI([
+    { type: "input_text", text: titlePrompt() },
+    { type: "input_image", image_url: image, detail: "high" }
+  ], 80);
+  return cleanTitle(extractOutputText(data));
 }
 
 async function handleGenerateTitle(req, res) {
@@ -103,7 +123,7 @@ async function handleGenerateTitle(req, res) {
     return;
   }
   if (!apiKey) {
-    sendJson(res, 500, { error: "Railway 还没有设置 OPENAI_API_KEY" });
+    sendJson(res, 500, { error: messages.noKey });
     return;
   }
 
@@ -111,18 +131,13 @@ async function handleGenerateTitle(req, res) {
     const body = await readJson(req);
     const image = String(body.image || "");
     if (!image.startsWith("data:image/")) {
-      sendJson(res, 400, { error: "请先拍价格标签图" });
+      sendJson(res, 400, { error: messages.noPrice });
       return;
     }
 
-    const data = await callOpenAI([
-      { type: "input_text", text: titlePrompt() },
-      { type: "input_image", image_url: image, detail: "high" }
-    ], 80);
-
-    sendJson(res, 200, { title: cleanTitle(extractOutputText(data)), model });
+    sendJson(res, 200, { title: await recognizeOneTitle(image), model });
   } catch (error) {
-    sendJson(res, error.status || 500, { error: error.message || "AI 识别失败" });
+    sendJson(res, error.status || 500, { error: error.message || messages.aiFailed });
   }
 }
 
@@ -136,7 +151,7 @@ async function handleGenerateTitles(req, res) {
     return;
   }
   if (!apiKey) {
-    sendJson(res, 500, { error: "Railway 还没有设置 OPENAI_API_KEY" });
+    sendJson(res, 500, { error: messages.noKey });
     return;
   }
 
@@ -144,35 +159,14 @@ async function handleGenerateTitles(req, res) {
     const body = await readJson(req);
     const images = Array.isArray(body.images) ? body.images.slice(0, 9).map(String) : [];
     if (!images.length || images.some((image) => !image.startsWith("data:image/"))) {
-      sendJson(res, 400, { error: "请先提供本组价格标签图" });
+      sendJson(res, 400, { error: messages.noGroupPrices });
       return;
     }
 
-    const content = [
-      {
-        type: "input_text",
-        text: [
-          "你是加拿大 Costco 价格标签识别助手。",
-          "下面是同一组商品的价格标签图。请分别读取英文商品名称，并翻译成适合小红书九宫格黄色标题条的中文商品名。",
-          "规则：不要品牌名，不要型号，不要商品编号，不要价格；可以保留几件装、容量、口味、规格；看不清就输出空字符串。",
-          `请严格输出 JSON 数组，长度必须是 ${images.length}，数组元素只放中文商品名，每个最多 12 个中文字符。`
-        ].join("\n")
-      },
-      ...images.map((image) => ({ type: "input_image", image_url: image, detail: "high" }))
-    ];
-
-    const data = await callOpenAI(content, 220);
-    const text = extractOutputText(data).replace(/```json|```/g, "").trim();
-    let titles;
-    try {
-      titles = JSON.parse(text);
-    } catch {
-      titles = text.split(/\r?\n/).map((line) => line.replace(/^\s*\d+[.、)\-]\s*/, ""));
-    }
-    titles = Array.from({ length: images.length }, (_, index) => cleanTitle(titles[index] || ""));
+    const titles = await Promise.all(images.map((image) => recognizeOneTitle(image)));
     sendJson(res, 200, { titles, model });
   } catch (error) {
-    sendJson(res, error.status || 500, { error: error.message || "AI 批量识别失败" });
+    sendJson(res, error.status || 500, { error: error.message || messages.batchFailed });
   }
 }
 
