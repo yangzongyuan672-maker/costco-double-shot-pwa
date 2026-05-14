@@ -223,6 +223,9 @@ function renderHome() {
       if (grid) downloadBlob(grid.blob, grid.fileName);
     });
   });
+  document.querySelectorAll("[data-ai-grid]").forEach((button) => {
+    button.addEventListener("click", () => generateTitlesForGroup(Number(button.dataset.aiGrid), button));
+  });
 }
 
 function renderGridGallery() {
@@ -240,6 +243,7 @@ function renderGridGallery() {
             <img src="${urlFor(grid.blob)}" alt="${escapeHtml(grid.fileName)}">
             <div class="caption">
               <span>第 ${grid.groupNo} 组</span>
+              <button data-ai-grid="${grid.groupNo}">AI中文名</button>
               <button data-download-grid="${grid.id}">下载</button>
             </div>
           </div>
@@ -400,6 +404,73 @@ async function makeGridForGroup(groupNo, manual) {
   items.forEach((item) => {
     item.gridFileName = fileName;
   });
+}
+
+function getStoredTitles() {
+  try {
+    return JSON.parse(localStorage.getItem("costco_title_queue") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function setStoredTitles(titles) {
+  localStorage.setItem("costco_title_queue", JSON.stringify(titles));
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("图片读取失败"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function generateTitlesForGroup(groupNo, button) {
+  const items = state.items.filter((item) => item.groupNo === groupNo).slice(0, 9);
+  if (!items.length) return;
+
+  const oldText = button?.textContent || "";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "识别中...";
+  }
+  showToast(`正在识别第 ${groupNo} 组中文名...`);
+
+  try {
+    const images = await Promise.all(items.map((item) => blobToDataUrl(item.priceBlob)));
+    const response = await fetch("/api/generate-titles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ images })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "AI 批量识别失败");
+
+    const titles = getStoredTitles();
+    for (const [index, item] of items.entries()) {
+      const title = String(data.titles?.[index] || "").trim();
+      titles[item.index - 1] = title;
+      localStorage.setItem("costco_title_current", title);
+      item.cardBlob = await makeProductCard(item.productBlob, item.priceBlob);
+    }
+    localStorage.setItem("costco_title_current", "");
+    setStoredTitles(titles);
+
+    const existingGrid = state.grids.find((grid) => grid.groupNo === groupNo);
+    await makeGridForGroup(groupNo, existingGrid?.manual ?? false);
+    await saveState();
+    render();
+    showToast(`第 ${groupNo} 组中文名已生成`);
+  } catch (error) {
+    alert(error.message || "AI 批量识别失败");
+  } finally {
+    if (button?.isConnected) {
+      button.disabled = false;
+      button.textContent = oldText;
+    }
+  }
 }
 
 function deleteDraft() {
