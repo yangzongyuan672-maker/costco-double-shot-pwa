@@ -175,6 +175,19 @@ button:disabled {
   gap: 10px;
 }
 
+.capture-action-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.capture-action-row .btn {
+  min-height: 56px;
+  padding: 10px 6px;
+  line-height: 1.15;
+  font-size: 15px;
+}
+
 .btn {
   min-height: 52px;
   border-radius: 8px;
@@ -379,5 +392,13 @@ button:disabled {
 
   .gallery {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 380px) {
+  .capture-action-row .btn {
+    font-size: 14px;
+    padding-left: 4px;
+    padding-right: 4px;
   }
 }
