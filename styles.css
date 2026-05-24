@@ -372,13 +372,13 @@ button:disabled {
 }
 
 .product-mode .camera-frame {
-  width: min(78vw, 430px);
-  height: min(72vh, 620px);
+  width: min(86vw, 440px);
+  aspect-ratio: 414 / 359;
 }
 
 .price-mode .camera-frame {
   width: min(92vw, 680px);
-  height: min(34vh, 260px);
+  aspect-ratio: 414 / 194;
 }
 
 .camera-controls {
