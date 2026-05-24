@@ -29,6 +29,7 @@ let db;
 let state = structuredClone(initialState);
 let objectUrls = new Set();
 let toastTimer;
+let cameraStream = null;
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -282,13 +283,15 @@ function renderCapture() {
         ${cardUrl ? `<div class="card-preview"><img src="${cardUrl}" alt="单商品卡"></div>` : ""}
 
         <div class="panel actions">
-          <button class="btn primary" id="productShot">${draft.productBlob ? "重拍商品图" : "拍商品图"}</button>
-          <button class="btn primary" id="priceShot" ${draft.productBlob ? "" : "disabled"}>${draft.priceBlob ? "重拍价格牌" : "拍价格牌"}</button>
+          <div class="capture-action-row">
+            <button class="btn primary" id="productShot">${draft.productBlob ? "重拍商品图" : "拍商品图"}</button>
+            <button class="btn primary" id="priceShot" ${draft.productBlob ? "" : "disabled"}>${draft.priceBlob ? "重拍价格牌" : "拍价格牌"}</button>
+            <button class="btn dark" id="saveNext" ${draft.cardBlob ? "" : "disabled"}>保存并下一个</button>
+          </div>
           <div class="field">
             <label for="note">备注</label>
             <textarea id="note" class="textarea" placeholder="可选，例如 .97、星号、限购等">${escapeHtml(draft.note)}</textarea>
           </div>
-          <button class="btn dark" id="saveNext" ${draft.cardBlob ? "" : "disabled"}>保存并下一个</button>
           <div class="action-row">
             <button class="btn warn" id="makePartial" ${currentGroupItems().length ? "" : "disabled"}>提前生成九宫格</button>
             <button class="btn danger" id="deleteDraft">删除当前商品</button>
@@ -306,8 +309,8 @@ function renderCapture() {
     await saveState();
     render();
   });
-  $("#productShot").addEventListener("click", () => $("#productInput").click());
-  $("#priceShot").addEventListener("click", () => $("#priceInput").click());
+  $("#productShot").addEventListener("click", () => startCameraCapture("productBlob"));
+  $("#priceShot").addEventListener("click", () => startCameraCapture("priceBlob"));
   $("#productInput").addEventListener("change", (event) => handlePhoto("productBlob", event.target.files[0]));
   $("#priceInput").addEventListener("change", (event) => handlePhoto("priceBlob", event.target.files[0]));
   $("#note").addEventListener("input", async (event) => {
@@ -322,18 +325,119 @@ function renderCapture() {
 async function handlePhoto(slot, file) {
   if (!file) return;
   const normalized = await normalizeImage(file, slot === "productBlob" ? 1200 : 1000);
-  state.draft[slot] = normalized;
+  await setPhotoSlot(slot, normalized, true);
+}
+
+async function setPhotoSlot(slot, blob, autoNext) {
+  state.draft[slot] = blob;
   if (slot === "productBlob") {
     state.draft.priceBlob = null;
     state.draft.cardBlob = null;
     await saveState();
     render();
-    setTimeout(() => $("#priceShot")?.click(), 120);
+    if (autoNext) setTimeout(() => startCameraCapture("priceBlob"), 180);
     return;
   }
   await regenerateDraftCard();
   await saveState();
   render();
+}
+
+async function startCameraCapture(slot) {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    showToast("当前浏览器不支持网页相机，已打开系统相机");
+    $(slot === "productBlob" ? "#productInput" : "#priceInput")?.click();
+    return;
+  }
+
+  stopCameraStream();
+  const isPrice = slot === "priceBlob";
+  const modal = document.createElement("div");
+  modal.className = "camera-modal";
+  modal.innerHTML = `
+    <div class="camera-stage ${isPrice ? "price-mode" : "product-mode"}">
+      <video id="cameraVideo" autoplay playsinline muted></video>
+      <div class="camera-mask"></div>
+      <div class="camera-frame">
+        <span>${isPrice ? "把价格牌、英文名和价格放进框内" : "把商品主体放进框内"}</span>
+      </div>
+    </div>
+    <div class="camera-controls">
+      <button class="btn ghost" id="closeCamera" type="button">取消</button>
+      <button class="btn primary" id="snapCamera" type="button">拍摄</button>
+      <button class="btn ghost" id="fallbackCamera" type="button">系统相机备用</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const video = modal.querySelector("#cameraVideo");
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      },
+      audio: false
+    });
+    video.srcObject = cameraStream;
+    await video.play();
+  } catch (error) {
+    closeCameraModal(modal);
+    showToast("网页相机打不开，已打开系统相机备用");
+    $(isPrice ? "#priceInput" : "#productInput")?.click();
+    return;
+  }
+
+  modal.querySelector("#closeCamera").addEventListener("click", () => closeCameraModal(modal));
+  modal.querySelector("#fallbackCamera").addEventListener("click", () => {
+    closeCameraModal(modal);
+    $(isPrice ? "#priceInput" : "#productInput")?.click();
+  });
+  modal.querySelector("#snapCamera").addEventListener("click", async () => {
+    try {
+      const blob = await captureFrameFromVideo(video, modal.querySelector(".camera-frame"), isPrice ? 1000 : 1200);
+      closeCameraModal(modal);
+      await setPhotoSlot(slot, blob, true);
+    } catch (error) {
+      alert(error.message || "拍摄失败，请重试");
+    }
+  });
+}
+
+function closeCameraModal(modal) {
+  stopCameraStream();
+  modal?.remove();
+}
+
+function stopCameraStream() {
+  cameraStream?.getTracks().forEach((track) => track.stop());
+  cameraStream = null;
+}
+
+async function captureFrameFromVideo(video, frame, maxSide) {
+  if (!video.videoWidth || !video.videoHeight) throw new Error("相机还没准备好，请再点一次拍摄");
+
+  const videoRect = video.getBoundingClientRect();
+  const frameRect = frame.getBoundingClientRect();
+  const scale = Math.max(videoRect.width / video.videoWidth, videoRect.height / video.videoHeight);
+  const visibleW = videoRect.width / scale;
+  const visibleH = videoRect.height / scale;
+  const visibleX = (video.videoWidth - visibleW) / 2;
+  const visibleY = (video.videoHeight - visibleH) / 2;
+  const sx = visibleX + (frameRect.left - videoRect.left) / scale;
+  const sy = visibleY + (frameRect.top - videoRect.top) / scale;
+  const sw = frameRect.width / scale;
+  const sh = frameRect.height / scale;
+  const outputScale = Math.min(1, maxSide / Math.max(sw, sh));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(sw * outputScale);
+  canvas.height = Math.round(sh * outputScale);
+  const ctx = canvas.getContext("2d", { alpha: false });
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  return canvasToBlob(canvas, 0.9);
 }
 
 async function regenerateDraftCard() {
