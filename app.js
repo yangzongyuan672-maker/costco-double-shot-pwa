@@ -362,6 +362,12 @@ async function startCameraCapture(slot) {
         <span>${isPrice ? "把价格牌、英文名和价格放进框内" : "把商品主体放进框内"}</span>
       </div>
     </div>
+    <div class="camera-zoom">
+      <button class="zoom-pill active" data-zoom="1" type="button">1x</button>
+      <button class="zoom-pill" data-zoom="1.5" type="button">1.5x</button>
+      <button class="zoom-pill" data-zoom="2" type="button">2x</button>
+      <button class="zoom-pill" data-zoom="3" type="button">3x</button>
+    </div>
     <div class="camera-controls">
       <button class="btn ghost" id="closeCamera" type="button">取消</button>
       <button class="btn primary" id="snapCamera" type="button">拍摄</button>
@@ -390,6 +396,13 @@ async function startCameraCapture(slot) {
   }
 
   modal.querySelector("#closeCamera").addEventListener("click", () => closeCameraModal(modal));
+  modal.querySelectorAll("[data-zoom]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const zoom = Number(button.dataset.zoom || 1);
+      setCameraZoom(video, zoom);
+      modal.querySelectorAll("[data-zoom]").forEach((item) => item.classList.toggle("active", item === button));
+    });
+  });
   modal.querySelector("#fallbackCamera").addEventListener("click", () => {
     closeCameraModal(modal);
     $(isPrice ? "#priceInput" : "#productInput")?.click();
@@ -403,6 +416,10 @@ async function startCameraCapture(slot) {
       alert(error.message || "拍摄失败，请重试");
     }
   });
+}
+
+function setCameraZoom(video, zoom) {
+  video.style.transform = `scale(${zoom})`;
 }
 
 function closeCameraModal(modal) {
