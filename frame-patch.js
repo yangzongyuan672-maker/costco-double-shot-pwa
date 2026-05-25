@@ -7,6 +7,7 @@
   const TEXT_DARK = "#111827";
   const TITLE_INSET_X = 25;
   const PRICE_RATIO = 0.35;
+  let guidedCameraStream = null;
 
   function getTitles() {
     try {
@@ -28,7 +29,7 @@
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result || ""));
-      reader.onerror = () => reject(reader.error || new Error("图片读取失败"));
+      reader.onerror = () => reject(reader.error || new Error("Image read failed"));
       reader.readAsDataURL(blob);
     });
   }
@@ -36,7 +37,7 @@
   async function priceImageDataUrl() {
     const previewImages = Array.from(document.querySelectorAll(".preview img"));
     const priceImage = previewImages[1];
-    if (!priceImage?.src) throw new Error("请先拍价格标签图");
+    if (!priceImage?.src) throw new Error("Take the price tag photo first");
     const response = await fetch(priceImage.src);
     const blob = await response.blob();
     return imageBlobToDataUrl(blob);
@@ -47,7 +48,7 @@
     if (!input) return;
     const oldText = button.textContent;
     button.disabled = true;
-    button.textContent = "识别中...";
+    button.textContent = "AI...";
     try {
       const image = await priceImageDataUrl();
       const endpoint = window.COSTCO_AI_ENDPOINT || "/api/generate-title";
@@ -57,11 +58,11 @@
         body: JSON.stringify({ image })
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || "AI 识别失败");
+      if (!response.ok) throw new Error(data.error || "AI title failed");
       input.value = data.title || "";
       localStorage.setItem(TITLE_KEY, input.value.trim());
     } catch (error) {
-      alert(error.message || "AI 识别失败");
+      alert(error.message || "AI title failed");
     } finally {
       button.disabled = false;
       button.textContent = oldText;
@@ -127,9 +128,177 @@
     row.append(product, price, save);
   }
 
+  function fileFromBlob(blob, slot) {
+    return new File([blob], slot === "productBlob" ? "product_camera.jpg" : "price_camera.jpg", {
+      type: "image/jpeg"
+    });
+  }
+
+  function sendBlobToApp(slot, blob) {
+    const input = document.getElementById(slot === "productBlob" ? "productInput" : "priceInput");
+    if (!input || typeof DataTransfer === "undefined") {
+      throw new Error("This browser cannot pass the web camera photo back. Use system camera backup.");
+    }
+    const transfer = new DataTransfer();
+    transfer.items.add(fileFromBlob(blob, slot));
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function stopGuidedCamera() {
+    guidedCameraStream?.getTracks().forEach((track) => track.stop());
+    guidedCameraStream = null;
+  }
+
+  function closeGuidedCamera(modal) {
+    stopGuidedCamera();
+    modal?.remove();
+  }
+
+  async function setGuidedZoom(video, zoom, status) {
+    const track = guidedCameraStream?.getVideoTracks?.()[0];
+    let hardwareZoom = 1;
+    let usedHardware = false;
+
+    if (track?.getCapabilities && track.applyConstraints) {
+      const capabilities = track.getCapabilities();
+      if (typeof capabilities.zoom === "object") {
+        const min = Number(capabilities.zoom.min || 1);
+        const max = Number(capabilities.zoom.max || zoom);
+        const step = Number(capabilities.zoom.step || 0.1);
+        hardwareZoom = Math.max(min, Math.min(zoom, max));
+        hardwareZoom = Math.round(hardwareZoom / step) * step;
+        try {
+          await track.applyConstraints({ advanced: [{ zoom: hardwareZoom }] });
+          usedHardware = hardwareZoom > 1 || zoom === 1;
+        } catch {
+          hardwareZoom = 1;
+        }
+      }
+    }
+
+    const cssZoom = Math.max(1, zoom / hardwareZoom);
+    video.style.transform = `scale(${cssZoom})`;
+
+    if (!status) return;
+    if (usedHardware && cssZoom <= 1.02) {
+      status.textContent = `${zoom}x hardware zoom`;
+    } else if (usedHardware) {
+      status.textContent = `${zoom}x hardware ${hardwareZoom.toFixed(1).replace(/\.0$/, "")}x + web crop`;
+    } else {
+      status.textContent = `${zoom}x web crop; use system camera if it looks soft`;
+    }
+  }
+
+  async function captureGuidedFrame(video, frame, maxSide) {
+    if (!video.videoWidth || !video.videoHeight) throw new Error("Camera is not ready yet. Tap again.");
+
+    const videoRect = video.getBoundingClientRect();
+    const frameRect = frame.getBoundingClientRect();
+    const scale = Math.max(videoRect.width / video.videoWidth, videoRect.height / video.videoHeight);
+    const visibleW = videoRect.width / scale;
+    const visibleH = videoRect.height / scale;
+    const visibleX = (video.videoWidth - visibleW) / 2;
+    const visibleY = (video.videoHeight - visibleH) / 2;
+    const sx = visibleX + (frameRect.left - videoRect.left) / scale;
+    const sy = visibleY + (frameRect.top - videoRect.top) / scale;
+    const sw = frameRect.width / scale;
+    const sh = frameRect.height / scale;
+    const outputScale = Math.min(1, maxSide / Math.max(sw, sh));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(sw * outputScale);
+    canvas.height = Math.round(sh * outputScale);
+    const ctx = canvas.getContext("2d", { alpha: false });
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+  }
+
+  async function openGuidedCamera(slot) {
+    if (!navigator.mediaDevices?.getUserMedia) return false;
+
+    stopGuidedCamera();
+    const isPrice = slot === "priceBlob";
+    const modal = document.createElement("div");
+    modal.className = "camera-modal";
+    modal.innerHTML = `
+      <div class="camera-stage ${isPrice ? "price-mode" : "product-mode"}">
+        <video id="cameraVideo" autoplay playsinline muted></video>
+        <div class="camera-mask"></div>
+        <div class="camera-frame">
+          <span>${isPrice ? "Put price tag, English name and price inside" : "Put product inside the frame"}</span>
+        </div>
+      </div>
+      <div class="camera-zoom">
+        <button class="zoom-pill active" data-zoom="1" type="button">1x</button>
+        <button class="zoom-pill" data-zoom="2" type="button">2x</button>
+        <button class="zoom-pill" data-zoom="3" type="button">3x</button>
+        <button class="zoom-pill" data-zoom="5" type="button">5x</button>
+        <button class="zoom-pill" data-zoom="6" type="button">6x</button>
+      </div>
+      <div class="camera-zoom-status" id="cameraZoomStatus">1x standard camera</div>
+      <div class="camera-controls">
+        <button class="btn ghost" id="closeCamera" type="button">Cancel</button>
+        <button class="btn primary" id="snapCamera" type="button">Shoot</button>
+        <button class="btn ghost" id="fallbackCamera" type="button">System camera</button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const video = modal.querySelector("#cameraVideo");
+    try {
+      guidedCameraStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        },
+        audio: false
+      });
+      video.srcObject = guidedCameraStream;
+      await video.play();
+    } catch {
+      closeGuidedCamera(modal);
+      return false;
+    }
+
+    modal.querySelector("#closeCamera").addEventListener("click", () => closeGuidedCamera(modal));
+    modal.querySelectorAll("[data-zoom]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const zoom = Number(button.dataset.zoom || 1);
+        await setGuidedZoom(video, zoom, modal.querySelector("#cameraZoomStatus"));
+        modal.querySelectorAll("[data-zoom]").forEach((item) => item.classList.toggle("active", item === button));
+      });
+    });
+    modal.querySelector("#fallbackCamera").addEventListener("click", () => {
+      closeGuidedCamera(modal);
+      document.getElementById(isPrice ? "priceInput" : "productInput")?.click();
+    });
+    modal.querySelector("#snapCamera").addEventListener("click", async () => {
+      try {
+        const blob = await captureGuidedFrame(video, modal.querySelector(".camera-frame"), isPrice ? 1000 : 1200);
+        closeGuidedCamera(modal);
+        sendBlobToApp(slot, blob);
+      } catch (error) {
+        alert(error.message || "Shoot failed. Please try again.");
+      }
+    });
+    return true;
+  }
+
   document.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
+    if ((target.id === "productShot" || target.id === "priceShot") && !target.disabled) {
+      const slot = target.id === "productShot" ? "productBlob" : "priceBlob";
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      openGuidedCamera(slot).then((opened) => {
+        if (!opened) document.getElementById(slot === "productBlob" ? "productInput" : "priceInput")?.click();
+      });
+      return;
+    }
     if (target.id === "saveNext" && !target.disabled) {
       const titles = getTitles();
       titles.push(currentTitle());
