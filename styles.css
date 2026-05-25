@@ -393,10 +393,19 @@ button:disabled {
 
 .camera-zoom {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 8px;
   padding: 10px 12px 0;
   background: rgba(15, 23, 42, 0.96);
+}
+
+.camera-zoom-status {
+  padding: 7px 12px 0;
+  background: rgba(15, 23, 42, 0.96);
+  color: rgba(255, 255, 255, 0.78);
+  text-align: center;
+  font-size: 12px;
+  font-weight: 750;
 }
 
 .zoom-pill {
