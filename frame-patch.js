@@ -6,7 +6,7 @@
   const GRID_PINK = "#ff4fa3";
   const TEXT_DARK = "#111827";
   const TITLE_INSET_X = 25;
-  const TITLE_INSET_Y = 18;
+  const PRICE_RATIO = 0.35;
 
   function getTitles() {
     try {
@@ -28,7 +28,7 @@
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result || ""));
-      reader.onerror = () => reject(reader.error || new Error("\u56fe\u7247\u8bfb\u53d6\u5931\u8d25"));
+      reader.onerror = () => reject(reader.error || new Error("图片读取失败"));
       reader.readAsDataURL(blob);
     });
   }
@@ -36,7 +36,7 @@
   async function priceImageDataUrl() {
     const previewImages = Array.from(document.querySelectorAll(".preview img"));
     const priceImage = previewImages[1];
-    if (!priceImage?.src) throw new Error("\u8bf7\u5148\u62cd\u4ef7\u683c\u6807\u7b7e\u56fe");
+    if (!priceImage?.src) throw new Error("请先拍价格标签图");
     const response = await fetch(priceImage.src);
     const blob = await response.blob();
     return imageBlobToDataUrl(blob);
@@ -47,7 +47,7 @@
     if (!input) return;
     const oldText = button.textContent;
     button.disabled = true;
-    button.textContent = "\u8bc6\u522b\u4e2d...";
+    button.textContent = "识别中...";
     try {
       const image = await priceImageDataUrl();
       const endpoint = window.COSTCO_AI_ENDPOINT || "/api/generate-title";
@@ -57,11 +57,11 @@
         body: JSON.stringify({ image })
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || "AI \u8bc6\u522b\u5931\u8d25");
+      if (!response.ok) throw new Error(data.error || "AI 识别失败");
       input.value = data.title || "";
       localStorage.setItem(TITLE_KEY, input.value.trim());
     } catch (error) {
-      alert(error.message || "AI \u8bc6\u522b\u5931\u8d25");
+      alert(error.message || "AI 识别失败");
     } finally {
       button.disabled = false;
       button.textContent = oldText;
@@ -99,9 +99,9 @@
     const field = document.createElement("div");
     field.className = "field";
     field.innerHTML = `
-      <label for="titleZh">\u4e2d\u6587\u5546\u54c1\u540d</label>
-      <input id="titleZh" class="input" placeholder="\u4f8b\u5982\uff1a\u4e09\u4ef6\u88c5\u6536\u7eb3\u76d2" />
-      <button id="aiTitleBtn" class="btn warn" type="button">AI\u751f\u6210\u4e2d\u6587\u540d</button>
+      <label for="titleZh">中文商品名</label>
+      <input id="titleZh" class="input" placeholder="例如：三件装收纳盒" />
+      <button id="aiTitleBtn" class="btn warn" type="button">AI生成中文名</button>
     `;
     note.closest(".field")?.before(field);
     const input = field.querySelector("input");
@@ -162,10 +162,11 @@
 
   function decorateCard(ctx, width, height) {
     const titleH = Math.round(height * 0.105);
+    const splitY = Math.round(height * PRICE_RATIO);
     drawTitleBar(
       ctx,
       TITLE_INSET_X,
-      TITLE_INSET_Y,
+      splitY - Math.round(titleH / 3),
       width - TITLE_INSET_X * 2,
       titleH,
       currentTitle()
@@ -193,7 +194,7 @@
     }
     ctx.stroke();
 
-    const badgeText = `\u7b2c${String(groupNo).padStart(2, "0")}\u7ec4`;
+    const badgeText = `第${String(groupNo).padStart(2, "0")}组`;
     ctx.font = "20px system-ui, sans-serif";
     ctx.fillStyle = "rgba(17, 24, 39, 0.78)";
     ctx.textAlign = "right";
