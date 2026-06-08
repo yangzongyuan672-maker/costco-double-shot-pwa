@@ -7,6 +7,10 @@
   const TEXT_DARK = "#111827";
   const TITLE_INSET_X = 25;
   const PRICE_RATIO = 0.35;
+  const PHOTO_JPEG_QUALITY = 0.94;
+  const CAMERA_PRODUCT_MAX_SIDE = 2200;
+  const CAMERA_PRICE_MAX_SIDE = 2600;
+  const PRICE_CAPTURE_RATIO = 414 / 194;
   let guidedCameraStream = null;
 
   function getTitles() {
@@ -179,6 +183,7 @@
 
     const cssZoom = Math.max(1, zoom / hardwareZoom);
     video.style.transform = `scale(${cssZoom})`;
+    video.dataset.cssZoom = String(cssZoom);
 
     if (!status) return;
     if (usedHardware && cssZoom <= 1.02) {
@@ -190,9 +195,7 @@
     }
   }
 
-  async function captureGuidedFrame(video, frame, maxSide) {
-    if (!video.videoWidth || !video.videoHeight) throw new Error("Camera is not ready yet. Tap again.");
-
+  function sourceRectFromFrame(video, frame) {
     const videoRect = video.getBoundingClientRect();
     const frameRect = frame.getBoundingClientRect();
     const scale = Math.max(videoRect.width / video.videoWidth, videoRect.height / video.videoHeight);
@@ -200,19 +203,47 @@
     const visibleH = videoRect.height / scale;
     const visibleX = (video.videoWidth - visibleW) / 2;
     const visibleY = (video.videoHeight - visibleH) / 2;
-    const sx = visibleX + (frameRect.left - videoRect.left) / scale;
-    const sy = visibleY + (frameRect.top - videoRect.top) / scale;
-    const sw = frameRect.width / scale;
-    const sh = frameRect.height / scale;
+    return {
+      sx: visibleX + (frameRect.left - videoRect.left) / scale,
+      sy: visibleY + (frameRect.top - videoRect.top) / scale,
+      sw: frameRect.width / scale,
+      sh: frameRect.height / scale
+    };
+  }
+
+  function sourceRectForPrice(video) {
+    const cssZoom = Math.max(1, Number(video.dataset.cssZoom || 1));
+    const maxW = video.videoWidth / cssZoom;
+    const maxH = video.videoHeight / cssZoom;
+    let sw = maxW;
+    let sh = Math.round(sw / PRICE_CAPTURE_RATIO);
+    if (sh > maxH) {
+      sh = maxH;
+      sw = Math.round(sh * PRICE_CAPTURE_RATIO);
+    }
+    return {
+      sx: Math.max(0, Math.round((video.videoWidth - sw) / 2)),
+      sy: Math.max(0, Math.round((video.videoHeight - sh) / 2)),
+      sw,
+      sh
+    };
+  }
+
+  async function captureGuidedFrame(video, frame, maxSide, isPrice = false) {
+    if (!video.videoWidth || !video.videoHeight) throw new Error("Camera is not ready yet. Tap again.");
+
+    const { sx, sy, sw, sh } = isPrice ? sourceRectForPrice(video) : sourceRectFromFrame(video, frame);
     const outputScale = Math.min(1, maxSide / Math.max(sw, sh));
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(sw * outputScale);
     canvas.height = Math.round(sh * outputScale);
     const ctx = canvas.getContext("2d", { alpha: false });
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-    return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+    return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", PHOTO_JPEG_QUALITY));
   }
 
   async function openGuidedCamera(slot) {
@@ -235,7 +266,6 @@
         <button class="zoom-pill" data-zoom="2" type="button">2x</button>
         <button class="zoom-pill" data-zoom="3" type="button">3x</button>
         <button class="zoom-pill" data-zoom="5" type="button">5x</button>
-        <button class="zoom-pill" data-zoom="6" type="button">6x</button>
       </div>
       <div class="camera-zoom-status" id="cameraZoomStatus">1x standard camera</div>
       <div class="camera-controls">
@@ -251,8 +281,8 @@
       guidedCameraStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
+          width: { ideal: 3840 },
+          height: { ideal: 2160 }
         },
         audio: false
       });
@@ -277,7 +307,7 @@
     });
     modal.querySelector("#snapCamera").addEventListener("click", async () => {
       try {
-        const blob = await captureGuidedFrame(video, modal.querySelector(".camera-frame"), isPrice ? 1000 : 1200);
+        const blob = await captureGuidedFrame(video, modal.querySelector(".camera-frame"), isPrice ? CAMERA_PRICE_MAX_SIDE : CAMERA_PRODUCT_MAX_SIDE, isPrice);
         closeGuidedCamera(modal);
         sendBlobToApp(slot, blob);
       } catch (error) {
