@@ -9,6 +9,12 @@ const GRID_H = 1660;
 const GRID_GAP = 0;
 const GRID_PAD = 0;
 const WATERMARK_H = 0;
+const PRODUCT_MAX_SIDE = 1800;
+const PRICE_MAX_SIDE = 1600;
+const PHOTO_JPEG_QUALITY = 0.94;
+const CAMERA_PRODUCT_MAX_SIDE = 2200;
+const CAMERA_PRICE_MAX_SIDE = 2600;
+const PRICE_CAPTURE_RATIO = 414 / 194;
 
 const initialState = {
   taskName: "",
@@ -324,7 +330,7 @@ function renderCapture() {
 
 async function handlePhoto(slot, file) {
   if (!file) return;
-  const normalized = await normalizeImage(file, slot === "productBlob" ? 1200 : 1000);
+  const normalized = await normalizeImage(file, slot === "productBlob" ? PRODUCT_MAX_SIDE : PRICE_MAX_SIDE);
   await setPhotoSlot(slot, normalized, true);
 }
 
@@ -364,10 +370,11 @@ async function startCameraCapture(slot) {
     </div>
     <div class="camera-zoom">
       <button class="zoom-pill active" data-zoom="1" type="button">1x</button>
-      <button class="zoom-pill" data-zoom="1.5" type="button">1.5x</button>
       <button class="zoom-pill" data-zoom="2" type="button">2x</button>
       <button class="zoom-pill" data-zoom="3" type="button">3x</button>
+      <button class="zoom-pill" data-zoom="5" type="button">5x</button>
     </div>
+    <div class="camera-zoom-status" id="cameraZoomStatus">1x 标准镜头</div>
     <div class="camera-controls">
       <button class="btn ghost" id="closeCamera" type="button">取消</button>
       <button class="btn primary" id="snapCamera" type="button">拍摄</button>
@@ -381,8 +388,8 @@ async function startCameraCapture(slot) {
     cameraStream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: { ideal: "environment" },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 }
+        width: { ideal: 3840 },
+        height: { ideal: 2160 }
       },
       audio: false
     });
@@ -397,9 +404,9 @@ async function startCameraCapture(slot) {
 
   modal.querySelector("#closeCamera").addEventListener("click", () => closeCameraModal(modal));
   modal.querySelectorAll("[data-zoom]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const zoom = Number(button.dataset.zoom || 1);
-      setCameraZoom(video, zoom);
+      await setCameraZoom(video, zoom, modal.querySelector("#cameraZoomStatus"));
       modal.querySelectorAll("[data-zoom]").forEach((item) => item.classList.toggle("active", item === button));
     });
   });
@@ -409,7 +416,7 @@ async function startCameraCapture(slot) {
   });
   modal.querySelector("#snapCamera").addEventListener("click", async () => {
     try {
-      const blob = await captureFrameFromVideo(video, modal.querySelector(".camera-frame"), isPrice ? 1000 : 1200);
+      const blob = await captureFrameFromVideo(video, modal.querySelector(".camera-frame"), isPrice ? CAMERA_PRICE_MAX_SIDE : CAMERA_PRODUCT_MAX_SIDE, isPrice);
       closeCameraModal(modal);
       await setPhotoSlot(slot, blob, true);
     } catch (error) {
@@ -418,8 +425,40 @@ async function startCameraCapture(slot) {
   });
 }
 
-function setCameraZoom(video, zoom) {
-  video.style.transform = `scale(${zoom})`;
+async function setCameraZoom(video, zoom, status) {
+  const track = cameraStream?.getVideoTracks?.()[0];
+  let hardwareZoom = 1;
+  let usedHardware = false;
+
+  if (track?.getCapabilities && track.applyConstraints) {
+    const capabilities = track.getCapabilities();
+    if (typeof capabilities.zoom === "object") {
+      const min = Number(capabilities.zoom.min || 1);
+      const max = Number(capabilities.zoom.max || zoom);
+      const step = Number(capabilities.zoom.step || 0.1);
+      hardwareZoom = Math.max(min, Math.min(zoom, max));
+      hardwareZoom = Math.round(hardwareZoom / step) * step;
+      try {
+        await track.applyConstraints({ advanced: [{ zoom: hardwareZoom }] });
+        usedHardware = hardwareZoom > 1 || zoom === 1;
+      } catch {
+        hardwareZoom = 1;
+      }
+    }
+  }
+
+  const cssZoom = Math.max(1, zoom / hardwareZoom);
+  video.style.transform = `scale(${cssZoom})`;
+  video.dataset.cssZoom = String(cssZoom);
+
+  if (!status) return;
+  if (usedHardware && cssZoom <= 1.02) {
+    status.textContent = `${zoom}x 硬件变焦，清晰度最好`;
+  } else if (usedHardware) {
+    status.textContent = `${zoom}x 硬件 ${hardwareZoom.toFixed(1).replace(/\.0$/, "")}x + 网页补放大`;
+  } else {
+    status.textContent = `${zoom}x 网页放大，远处会稍微糊；可用系统相机备用`;
+  }
 }
 
 function closeCameraModal(modal) {
@@ -432,9 +471,7 @@ function stopCameraStream() {
   cameraStream = null;
 }
 
-async function captureFrameFromVideo(video, frame, maxSide) {
-  if (!video.videoWidth || !video.videoHeight) throw new Error("相机还没准备好，请再点一次拍摄");
-
+function sourceRectFromFrame(video, frame) {
   const videoRect = video.getBoundingClientRect();
   const frameRect = frame.getBoundingClientRect();
   const scale = Math.max(videoRect.width / video.videoWidth, videoRect.height / video.videoHeight);
@@ -442,19 +479,47 @@ async function captureFrameFromVideo(video, frame, maxSide) {
   const visibleH = videoRect.height / scale;
   const visibleX = (video.videoWidth - visibleW) / 2;
   const visibleY = (video.videoHeight - visibleH) / 2;
-  const sx = visibleX + (frameRect.left - videoRect.left) / scale;
-  const sy = visibleY + (frameRect.top - videoRect.top) / scale;
-  const sw = frameRect.width / scale;
-  const sh = frameRect.height / scale;
+  return {
+    sx: visibleX + (frameRect.left - videoRect.left) / scale,
+    sy: visibleY + (frameRect.top - videoRect.top) / scale,
+    sw: frameRect.width / scale,
+    sh: frameRect.height / scale
+  };
+}
+
+function sourceRectForPrice(video) {
+  const cssZoom = Math.max(1, Number(video.dataset.cssZoom || 1));
+  const maxW = video.videoWidth / cssZoom;
+  const maxH = video.videoHeight / cssZoom;
+  let sw = maxW;
+  let sh = Math.round(sw / PRICE_CAPTURE_RATIO);
+  if (sh > maxH) {
+    sh = maxH;
+    sw = Math.round(sh * PRICE_CAPTURE_RATIO);
+  }
+  return {
+    sx: Math.max(0, Math.round((video.videoWidth - sw) / 2)),
+    sy: Math.max(0, Math.round((video.videoHeight - sh) / 2)),
+    sw,
+    sh
+  };
+}
+
+async function captureFrameFromVideo(video, frame, maxSide, isPrice = false) {
+  if (!video.videoWidth || !video.videoHeight) throw new Error("相机还没准备好，请再点一次拍摄");
+
+  const { sx, sy, sw, sh } = isPrice ? sourceRectForPrice(video) : sourceRectFromFrame(video, frame);
   const outputScale = Math.min(1, maxSide / Math.max(sw, sh));
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(sw * outputScale);
   canvas.height = Math.round(sh * outputScale);
   const ctx = canvas.getContext("2d", { alpha: false });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-  return canvasToBlob(canvas, 0.9);
+  return canvasToBlob(canvas, PHOTO_JPEG_QUALITY);
 }
 
 async function regenerateDraftCard() {
@@ -632,11 +697,13 @@ async function normalizeImage(blob, maxSide) {
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d", { alpha: false });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, width, height);
   ctx.drawImage(bitmap, 0, 0, width, height);
   bitmap.close?.();
-  return canvasToBlob(canvas, 0.86);
+  return canvasToBlob(canvas, PHOTO_JPEG_QUALITY);
 }
 
 async function makeProductCard(productBlob, priceBlob) {
@@ -645,6 +712,8 @@ async function makeProductCard(productBlob, priceBlob) {
   canvas.width = CARD_W;
   canvas.height = CARD_H;
   const ctx = canvas.getContext("2d", { alpha: false });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
 
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, CARD_W, CARD_H);
@@ -669,7 +738,7 @@ async function makeProductCard(productBlob, priceBlob) {
 
   product.close?.();
   price.close?.();
-  return canvasToBlob(canvas, 0.9);
+  return canvasToBlob(canvas, PHOTO_JPEG_QUALITY);
 }
 
 async function makeGrid(items) {
@@ -677,6 +746,8 @@ async function makeGrid(items) {
   canvas.width = GRID_W;
   canvas.height = GRID_H;
   const ctx = canvas.getContext("2d", { alpha: false });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, GRID_W, GRID_H);
 
@@ -699,7 +770,7 @@ async function makeGrid(items) {
     }
   }
 
-  return canvasToBlob(canvas, 0.92);
+  return canvasToBlob(canvas, PHOTO_JPEG_QUALITY);
 }
 
 function drawCover(ctx, bitmap, x, y, width, height, focusX = 0.5, focusY = 0.5) {
@@ -869,11 +940,47 @@ const CRC_TABLE = (() => {
   return table;
 })();
 
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js").catch(() => {});
+async function clearRuntimeCacheIfRequested() {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("fresh")) return false;
+
+  if ("caches" in window) {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((key) => caches.delete(key)));
+  }
+  if ("serviceWorker" in navigator) {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map((registration) => registration.unregister()));
+  }
+
+  url.searchParams.delete("fresh");
+  window.location.replace(url.toString());
+  return true;
 }
 
-loadState().then(render).catch((error) => {
+async function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (refreshing || sessionStorage.getItem("costco_sw_refreshed") === "1") return;
+    refreshing = true;
+    sessionStorage.setItem("costco_sw_refreshed", "1");
+    window.location.reload();
+  });
+
+  const registration = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
+  await registration.update().catch(() => {});
+}
+
+async function boot() {
+  if (await clearRuntimeCacheIfRequested()) return;
+  await registerServiceWorker().catch(() => {});
+  await loadState();
+  render();
+}
+
+boot().catch((error) => {
   console.error(error);
   $("#app").innerHTML = `<main class="app-shell"><div class="notice">本地数据库初始化失败：${escapeHtml(error.message)}</div></main>`;
 });
