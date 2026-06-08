@@ -345,10 +345,6 @@ button:disabled {
   transition: transform 120ms ease-out;
 }
 
-.price-mode video {
-  object-fit: contain;
-}
-
 .camera-mask {
   position: absolute;
   inset: 0;
@@ -383,7 +379,7 @@ button:disabled {
 }
 
 .price-mode .camera-frame {
-  width: min(96vw, 760px);
+  width: min(92vw, 680px);
   aspect-ratio: 414 / 194;
 }
 
@@ -397,7 +393,7 @@ button:disabled {
 
 .camera-zoom {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 8px;
   padding: 10px 12px 0;
   background: rgba(15, 23, 42, 0.96);
