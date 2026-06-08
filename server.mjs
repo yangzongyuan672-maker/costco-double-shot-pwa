@@ -66,23 +66,18 @@ function cleanTitle(value) {
     .trim()
     .split(/\r?\n/)[0]
     .replace(/[\u3002.,\uff0c;\uff1b]+$/g, "")
-    .slice(0, 32);
+    .slice(0, 20);
 }
 
 function titlePrompt() {
   return [
     "You identify Costco Canada price tags.",
     "Read the English product name on this single price tag and return one concise Simplified Chinese product title for a Xiaohongshu image label.",
-    "Do not include item number, price, discount, rating, review count, or marketing words.",
-    "For electronics, phones, computers, tablets, monitors, headphones, cameras, appliances, and gaming devices, keep the visible brand, series, model name or model number, screen size, storage, memory, chip, or key spec when readable.",
-    "Never simplify electronics to generic names such as 手机, 笔记本电脑, 电脑, 平板, 耳机, 显示器, or 相机 when a visible model or series is readable.",
-    "For non-electronics, omit brand unless it is needed to distinguish the product.",
+    "Do not include brand, model number, item number, or price.",
     "Keep useful pack count, quantity, flavor, size, or capacity.",
     "Never return only a package count such as 3-pack. Include the product type too.",
     "Example: SWEET DREAMS LIP OIL MASK 3 Pack -> \u5507\u90e8\u6cb9\u819c3\u4ef6\u88c5.",
-    "Example: HP 15.6 LAPTOP 16GB 512GB -> HP 15.6寸笔记本16GB/512GB.",
-    "Example: SAMSUNG GALAXY A35 128GB -> Samsung Galaxy A35 128GB.",
-    "Return only the Chinese product title. Keep it short, but preserve readable electronics model details. If unreadable, return an empty string."
+    "Return only the Chinese product title, maximum 12 Chinese characters when possible. If unreadable, return an empty string."
   ].join("\n");
 }
 
@@ -114,7 +109,7 @@ async function recognizeOneTitle(image) {
   const data = await callOpenAI([
     { type: "input_text", text: titlePrompt() },
     { type: "input_image", image_url: image, detail: "high" }
-  ], 120);
+  ], 80);
   return cleanTitle(extractOutputText(data));
 }
 
