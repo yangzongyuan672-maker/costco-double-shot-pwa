@@ -43,6 +43,15 @@
     return imageBlobToDataUrl(blob);
   }
 
+  async function productImageDataUrl() {
+    const previewImages = Array.from(document.querySelectorAll(".preview img"));
+    const productImage = previewImages[0];
+    if (!productImage?.src) return "";
+    const response = await fetch(productImage.src);
+    const blob = await response.blob();
+    return imageBlobToDataUrl(blob);
+  }
+
   async function generateTitle(button) {
     const input = document.getElementById("titleZh");
     if (!input) return;
@@ -50,12 +59,12 @@
     button.disabled = true;
     button.textContent = "AI...";
     try {
-      const image = await priceImageDataUrl();
+      const [image, productImage] = await Promise.all([priceImageDataUrl(), productImageDataUrl()]);
       const endpoint = window.COSTCO_AI_ENDPOINT || "/api/generate-title";
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image })
+        body: JSON.stringify({ image, productImage })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "AI title failed");
@@ -177,33 +186,28 @@
       }
     }
 
-    const cssZoom = Math.max(1, zoom / hardwareZoom);
-    video.style.transform = `scale(${cssZoom})`;
+    video.style.transform = "none";
 
     if (!status) return;
-    if (usedHardware && cssZoom <= 1.02) {
-      status.textContent = `${zoom}x hardware zoom`;
-    } else if (usedHardware) {
-      status.textContent = `${zoom}x hardware ${hardwareZoom.toFixed(1).replace(/\.0$/, "")}x + web crop`;
+    if (usedHardware) {
+      status.textContent = `${hardwareZoom.toFixed(1).replace(/\.0$/, "")}x 相机变焦`;
     } else {
-      status.textContent = `${zoom}x web crop; use system camera if it looks soft`;
+      status.textContent = "当前浏览器不支持相机变焦，保持1x原始画面";
     }
   }
 
   async function captureGuidedFrame(video, frame, maxSide) {
     if (!video.videoWidth || !video.videoHeight) throw new Error("Camera is not ready yet. Tap again.");
 
-    const videoRect = video.getBoundingClientRect();
+    const videoRect = renderedVideoRect(video);
     const frameRect = frame.getBoundingClientRect();
-    const scale = Math.max(videoRect.width / video.videoWidth, videoRect.height / video.videoHeight);
-    const visibleW = videoRect.width / scale;
-    const visibleH = videoRect.height / scale;
-    const visibleX = (video.videoWidth - visibleW) / 2;
-    const visibleY = (video.videoHeight - visibleH) / 2;
-    const sx = visibleX + (frameRect.left - videoRect.left) / scale;
-    const sy = visibleY + (frameRect.top - videoRect.top) / scale;
-    const sw = frameRect.width / scale;
-    const sh = frameRect.height / scale;
+    const cropRect = intersectRects(videoRect, frameRect);
+    if (!cropRect) throw new Error("Frame is outside the camera image. Adjust and shoot again.");
+
+    const sx = ((cropRect.left - videoRect.left) / videoRect.width) * video.videoWidth;
+    const sy = ((cropRect.top - videoRect.top) / videoRect.height) * video.videoHeight;
+    const sw = (cropRect.width / videoRect.width) * video.videoWidth;
+    const sh = (cropRect.height / videoRect.height) * video.videoHeight;
     const outputScale = Math.min(1, maxSide / Math.max(sw, sh));
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(sw * outputScale);
@@ -212,7 +216,40 @@
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-    return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+    return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.94));
+  }
+
+  function renderedVideoRect(video) {
+    const rect = video.getBoundingClientRect();
+    const videoRatio = video.videoWidth / video.videoHeight;
+    const boxRatio = rect.width / rect.height;
+    if (boxRatio > videoRatio) {
+      const height = rect.height;
+      const width = height * videoRatio;
+      return {
+        left: rect.left + (rect.width - width) / 2,
+        top: rect.top,
+        width,
+        height
+      };
+    }
+    const width = rect.width;
+    const height = width / videoRatio;
+    return {
+      left: rect.left,
+      top: rect.top + (rect.height - height) / 2,
+      width,
+      height
+    };
+  }
+
+  function intersectRects(a, b) {
+    const left = Math.max(a.left, b.left);
+    const top = Math.max(a.top, b.top);
+    const right = Math.min(a.left + a.width, b.left + b.width);
+    const bottom = Math.min(a.top + a.height, b.top + b.height);
+    if (right <= left || bottom <= top) return null;
+    return { left, top, width: right - left, height: bottom - top };
   }
 
   async function openGuidedCamera(slot) {
@@ -227,21 +264,19 @@
         <video id="cameraVideo" autoplay playsinline muted></video>
         <div class="camera-mask"></div>
         <div class="camera-frame">
-          <span>${isPrice ? "Put price tag, English name and price inside" : "Put product inside the frame"}</span>
+        <span>${isPrice ? "把价格牌、英文名和价格放进框内" : "把商品主体放进框内"}</span>
         </div>
       </div>
       <div class="camera-zoom">
         <button class="zoom-pill active" data-zoom="1" type="button">1x</button>
         <button class="zoom-pill" data-zoom="2" type="button">2x</button>
         <button class="zoom-pill" data-zoom="3" type="button">3x</button>
-        <button class="zoom-pill" data-zoom="5" type="button">5x</button>
-        <button class="zoom-pill" data-zoom="6" type="button">6x</button>
       </div>
-      <div class="camera-zoom-status" id="cameraZoomStatus">1x standard camera</div>
+      <div class="camera-zoom-status" id="cameraZoomStatus">1x 原始画面</div>
       <div class="camera-controls">
-        <button class="btn ghost" id="closeCamera" type="button">Cancel</button>
-        <button class="btn primary" id="snapCamera" type="button">Shoot</button>
-        <button class="btn ghost" id="fallbackCamera" type="button">System camera</button>
+        <button class="btn ghost" id="closeCamera" type="button">取消</button>
+        <button class="btn primary" id="snapCamera" type="button">拍摄</button>
+        <button class="btn ghost" id="fallbackCamera" type="button">系统相机</button>
       </div>
     `;
     document.body.appendChild(modal);
@@ -251,8 +286,8 @@
       guidedCameraStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
+          width: { ideal: 2560 },
+          height: { ideal: 1440 }
         },
         audio: false
       });
@@ -277,7 +312,7 @@
     });
     modal.querySelector("#snapCamera").addEventListener("click", async () => {
       try {
-        const blob = await captureGuidedFrame(video, modal.querySelector(".camera-frame"), isPrice ? 1000 : 1200);
+        const blob = await captureGuidedFrame(video, modal.querySelector(".camera-frame"), isPrice ? 1600 : 1800);
         closeGuidedCamera(modal);
         sendBlobToApp(slot, blob);
       } catch (error) {
