@@ -355,22 +355,23 @@ button:disabled {
   position: absolute;
   left: 50%;
   top: 50%;
-  display: grid;
-  place-items: end center;
   border: 3px solid #facc15;
   box-shadow: 0 0 0 9999px rgba(2, 6, 23, 0.32);
   color: #111827;
   transform: translate(-50%, -50%);
 }
 
-.camera-frame span {
-  width: 100%;
+.camera-hint {
+  position: absolute;
+  transform: translateX(-50%);
   padding: 7px 9px;
   background: rgba(250, 204, 21, 0.92);
+  color: #111827;
   text-align: center;
   font-size: 13px;
   font-weight: 850;
   line-height: 1.2;
+  pointer-events: none;
 }
 
 .product-mode .camera-frame {
