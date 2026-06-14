@@ -324,7 +324,7 @@ function renderCapture() {
 
 async function handlePhoto(slot, file) {
   if (!file) return;
-  const normalized = await normalizeImage(file, slot === "productBlob" ? 1200 : 1000);
+  const normalized = await normalizeImage(file, slot === "productBlob" ? 1800 : 1600);
   await setPhotoSlot(slot, normalized, true);
 }
 
@@ -364,10 +364,10 @@ async function startCameraCapture(slot) {
     </div>
     <div class="camera-zoom">
       <button class="zoom-pill active" data-zoom="1" type="button">1x</button>
-      <button class="zoom-pill" data-zoom="1.5" type="button">1.5x</button>
       <button class="zoom-pill" data-zoom="2" type="button">2x</button>
       <button class="zoom-pill" data-zoom="3" type="button">3x</button>
     </div>
+    <div class="camera-zoom-status" id="cameraZoomStatus">1x 原始画面</div>
     <div class="camera-controls">
       <button class="btn ghost" id="closeCamera" type="button">取消</button>
       <button class="btn primary" id="snapCamera" type="button">拍摄</button>
@@ -381,8 +381,8 @@ async function startCameraCapture(slot) {
     cameraStream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: { ideal: "environment" },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 }
+        width: { ideal: 2560 },
+        height: { ideal: 1440 }
       },
       audio: false
     });
@@ -397,9 +397,9 @@ async function startCameraCapture(slot) {
 
   modal.querySelector("#closeCamera").addEventListener("click", () => closeCameraModal(modal));
   modal.querySelectorAll("[data-zoom]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const zoom = Number(button.dataset.zoom || 1);
-      setCameraZoom(video, zoom);
+      await setCameraZoom(video, zoom, modal.querySelector("#cameraZoomStatus"));
       modal.querySelectorAll("[data-zoom]").forEach((item) => item.classList.toggle("active", item === button));
     });
   });
@@ -409,7 +409,7 @@ async function startCameraCapture(slot) {
   });
   modal.querySelector("#snapCamera").addEventListener("click", async () => {
     try {
-      const blob = await captureFrameFromVideo(video, modal.querySelector(".camera-frame"), isPrice ? 1000 : 1200);
+      const blob = await captureFrameFromVideo(video, modal.querySelector(".camera-frame"), isPrice ? 1600 : 1800);
       closeCameraModal(modal);
       await setPhotoSlot(slot, blob, true);
     } catch (error) {
@@ -418,8 +418,36 @@ async function startCameraCapture(slot) {
   });
 }
 
-function setCameraZoom(video, zoom) {
-  video.style.transform = `scale(${zoom})`;
+async function setCameraZoom(video, zoom, status) {
+  const track = cameraStream?.getVideoTracks?.()[0];
+  let appliedZoom = 1;
+  let canZoom = false;
+
+  if (track?.getCapabilities && track.applyConstraints) {
+    const capabilities = track.getCapabilities();
+    if (typeof capabilities.zoom === "object") {
+      const min = Number(capabilities.zoom.min || 1);
+      const max = Number(capabilities.zoom.max || zoom);
+      const step = Number(capabilities.zoom.step || 0.1);
+      appliedZoom = Math.max(min, Math.min(zoom, max));
+      appliedZoom = Math.round(appliedZoom / step) * step;
+      try {
+        await track.applyConstraints({ advanced: [{ zoom: appliedZoom }] });
+        canZoom = true;
+      } catch {
+        appliedZoom = 1;
+      }
+    }
+  }
+
+  video.style.transform = "none";
+  if (!status) return;
+  if (canZoom) {
+    const label = appliedZoom.toFixed(1).replace(/\.0$/, "");
+    status.textContent = `${label}x 相机变焦`;
+  } else {
+    status.textContent = "当前浏览器不支持相机变焦，保持1x原始画面";
+  }
 }
 
 function closeCameraModal(modal) {
@@ -435,17 +463,15 @@ function stopCameraStream() {
 async function captureFrameFromVideo(video, frame, maxSide) {
   if (!video.videoWidth || !video.videoHeight) throw new Error("相机还没准备好，请再点一次拍摄");
 
-  const videoRect = video.getBoundingClientRect();
+  const videoRect = renderedVideoRect(video);
   const frameRect = frame.getBoundingClientRect();
-  const scale = Math.max(videoRect.width / video.videoWidth, videoRect.height / video.videoHeight);
-  const visibleW = videoRect.width / scale;
-  const visibleH = videoRect.height / scale;
-  const visibleX = (video.videoWidth - visibleW) / 2;
-  const visibleY = (video.videoHeight - visibleH) / 2;
-  const sx = visibleX + (frameRect.left - videoRect.left) / scale;
-  const sy = visibleY + (frameRect.top - videoRect.top) / scale;
-  const sw = frameRect.width / scale;
-  const sh = frameRect.height / scale;
+  const cropRect = intersectRects(videoRect, frameRect);
+  if (!cropRect) throw new Error("取景框没有对准相机画面，请调整后再拍");
+
+  const sx = ((cropRect.left - videoRect.left) / videoRect.width) * video.videoWidth;
+  const sy = ((cropRect.top - videoRect.top) / videoRect.height) * video.videoHeight;
+  const sw = (cropRect.width / videoRect.width) * video.videoWidth;
+  const sh = (cropRect.height / videoRect.height) * video.videoHeight;
   const outputScale = Math.min(1, maxSide / Math.max(sw, sh));
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(sw * outputScale);
@@ -454,7 +480,40 @@ async function captureFrameFromVideo(video, frame, maxSide) {
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-  return canvasToBlob(canvas, 0.9);
+  return canvasToBlob(canvas, 0.94);
+}
+
+function renderedVideoRect(video) {
+  const rect = video.getBoundingClientRect();
+  const videoRatio = video.videoWidth / video.videoHeight;
+  const boxRatio = rect.width / rect.height;
+  if (boxRatio > videoRatio) {
+    const height = rect.height;
+    const width = height * videoRatio;
+    return {
+      left: rect.left + (rect.width - width) / 2,
+      top: rect.top,
+      width,
+      height
+    };
+  }
+  const width = rect.width;
+  const height = width / videoRatio;
+  return {
+    left: rect.left,
+    top: rect.top + (rect.height - height) / 2,
+    width,
+    height
+  };
+}
+
+function intersectRects(a, b) {
+  const left = Math.max(a.left, b.left);
+  const top = Math.max(a.top, b.top);
+  const right = Math.min(a.left + a.width, b.left + b.width);
+  const bottom = Math.min(a.top + a.height, b.top + b.height);
+  if (right <= left || bottom <= top) return null;
+  return { left, top, width: right - left, height: bottom - top };
 }
 
 async function regenerateDraftCard() {
@@ -560,11 +619,14 @@ async function generateTitlesForGroup(groupNo, button) {
   showToast(`正在识别第 ${groupNo} 组中文名...`);
 
   try {
-    const images = await Promise.all(items.map((item) => blobToDataUrl(item.priceBlob)));
+    const pairs = await Promise.all(items.map(async (item) => ({
+      image: await blobToDataUrl(item.priceBlob),
+      productImage: await blobToDataUrl(item.productBlob)
+    })));
     const response = await fetch("/api/generate-titles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ images })
+      body: JSON.stringify({ images: pairs })
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || "AI 批量识别失败");
@@ -636,7 +698,7 @@ async function normalizeImage(blob, maxSide) {
   ctx.fillRect(0, 0, width, height);
   ctx.drawImage(bitmap, 0, 0, width, height);
   bitmap.close?.();
-  return canvasToBlob(canvas, 0.86);
+  return canvasToBlob(canvas, 0.92);
 }
 
 async function makeProductCard(productBlob, priceBlob) {
