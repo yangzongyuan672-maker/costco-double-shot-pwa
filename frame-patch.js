@@ -170,6 +170,8 @@
 
   async function setGuidedZoom(video, zoom, status) {
     const track = guidedCameraStream?.getVideoTracks?.()[0];
+    const requestedZoom = zoom;
+    const targetZoom = calibratedGuidedZoom(zoom);
     let hardwareZoom = 1;
     let usedHardware = false;
 
@@ -177,9 +179,9 @@
       const capabilities = track.getCapabilities();
       if (typeof capabilities.zoom === "object") {
         const min = Number(capabilities.zoom.min || 1);
-        const max = Number(capabilities.zoom.max || zoom);
+        const max = Number(capabilities.zoom.max || targetZoom);
         const step = Number(capabilities.zoom.step || 0.1);
-        hardwareZoom = Math.max(min, Math.min(zoom, max));
+        hardwareZoom = Math.max(min, Math.min(targetZoom, max));
         hardwareZoom = Math.round(hardwareZoom / step) * step;
         try {
           await track.applyConstraints({ advanced: [{ zoom: hardwareZoom }] });
@@ -194,10 +196,15 @@
 
     if (!status) return;
     if (usedHardware) {
-      status.textContent = `${hardwareZoom.toFixed(1).replace(/\.0$/, "")}x 相机变焦`;
+      status.textContent = `${requestedZoom}x 校准视角`;
     } else {
       status.textContent = "当前浏览器不支持相机变焦，保持1x原始画面";
     }
+  }
+
+  function calibratedGuidedZoom(zoom) {
+    if (zoom <= 1) return 1;
+    return 1 + (zoom - 1) * 0.5;
   }
 
   async function captureGuidedFrame(video, frame, maxSide) {
@@ -278,8 +285,9 @@
     const stageRect = modal.querySelector(".camera-stage").getBoundingClientRect();
     const videoRect = renderedVideoRect(video);
     const ratio = isPrice ? 414 / 194 : 414 / 359;
-    const maxWidth = isPrice ? 680 : 440;
-    const width = Math.max(220, Math.min(maxWidth, videoRect.width * 0.94, videoRect.height * 0.78 * ratio));
+    const maxWidth = isPrice ? Number.POSITIVE_INFINITY : 440;
+    const widthFactor = isPrice ? 0.995 : 0.94;
+    const width = Math.max(220, Math.min(maxWidth, videoRect.width * widthFactor, videoRect.height * 0.78 * ratio));
     const height = width / ratio;
     const centerX = videoRect.left - stageRect.left + videoRect.width / 2;
     const centerY = videoRect.top - stageRect.top + videoRect.height / 2;
