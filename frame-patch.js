@@ -160,6 +160,10 @@
   }
 
   function closeGuidedCamera(modal) {
+    if (modal?._syncGuidedFrame) {
+      window.removeEventListener("resize", modal._syncGuidedFrame);
+      window.removeEventListener("orientationchange", modal._syncGuidedFrame);
+    }
     stopGuidedCamera();
     modal?.remove();
   }
@@ -200,7 +204,7 @@
     if (!video.videoWidth || !video.videoHeight) throw new Error("Camera is not ready yet. Tap again.");
 
     const videoRect = renderedVideoRect(video);
-    const frameRect = frame.getBoundingClientRect();
+    const frameRect = frameContentRect(frame);
     const cropRect = intersectRects(videoRect, frameRect);
     if (!cropRect) throw new Error("Frame is outside the camera image. Adjust and shoot again.");
 
@@ -252,6 +256,46 @@
     return { left, top, width: right - left, height: bottom - top };
   }
 
+  function frameContentRect(frame) {
+    const rect = frame.getBoundingClientRect();
+    const style = getComputedStyle(frame);
+    const leftBorder = parseFloat(style.borderLeftWidth) || 0;
+    const rightBorder = parseFloat(style.borderRightWidth) || 0;
+    const topBorder = parseFloat(style.borderTopWidth) || 0;
+    const bottomBorder = parseFloat(style.borderBottomWidth) || 0;
+    return {
+      left: rect.left + leftBorder,
+      top: rect.top + topBorder,
+      width: Math.max(1, rect.width - leftBorder - rightBorder),
+      height: Math.max(1, rect.height - topBorder - bottomBorder)
+    };
+  }
+
+  function syncGuidedFrame(video, modal, isPrice) {
+    if (!video.videoWidth || !video.videoHeight) return;
+    const frame = modal.querySelector(".camera-frame");
+    const hint = modal.querySelector(".camera-hint");
+    const stageRect = modal.querySelector(".camera-stage").getBoundingClientRect();
+    const videoRect = renderedVideoRect(video);
+    const ratio = isPrice ? 414 / 194 : 414 / 359;
+    const maxWidth = isPrice ? 680 : 440;
+    const width = Math.max(220, Math.min(maxWidth, videoRect.width * 0.94, videoRect.height * 0.78 * ratio));
+    const height = width / ratio;
+    const centerX = videoRect.left - stageRect.left + videoRect.width / 2;
+    const centerY = videoRect.top - stageRect.top + videoRect.height / 2;
+
+    frame.style.width = `${width}px`;
+    frame.style.height = `${height}px`;
+    frame.style.left = `${centerX}px`;
+    frame.style.top = `${centerY}px`;
+
+    if (hint) {
+      hint.style.left = `${centerX}px`;
+      hint.style.top = `${Math.min(stageRect.height - 44, centerY + height / 2 + 10)}px`;
+      hint.style.width = `${width}px`;
+    }
+  }
+
   async function openGuidedCamera(slot) {
     if (!navigator.mediaDevices?.getUserMedia) return false;
 
@@ -263,9 +307,8 @@
       <div class="camera-stage ${isPrice ? "price-mode" : "product-mode"}">
         <video id="cameraVideo" autoplay playsinline muted></video>
         <div class="camera-mask"></div>
-        <div class="camera-frame">
-        <span>${isPrice ? "把价格牌、英文名和价格放进框内" : "把商品主体放进框内"}</span>
-        </div>
+        <div class="camera-frame"></div>
+        <div class="camera-hint">${isPrice ? "把价格牌、英文名和价格放进框内" : "把商品主体放进框内"}</div>
       </div>
       <div class="camera-zoom">
         <button class="zoom-pill active" data-zoom="1" type="button">1x</button>
@@ -293,6 +336,10 @@
       });
       video.srcObject = guidedCameraStream;
       await video.play();
+      syncGuidedFrame(video, modal, isPrice);
+      modal._syncGuidedFrame = () => syncGuidedFrame(video, modal, isPrice);
+      window.addEventListener("resize", modal._syncGuidedFrame);
+      window.addEventListener("orientationchange", modal._syncGuidedFrame);
     } catch {
       closeGuidedCamera(modal);
       return false;
