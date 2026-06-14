@@ -7,7 +7,7 @@ const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 4173);
 const apiKey = process.env.OPENAI_API_KEY;
 const model = process.env.OPENAI_MODEL || "gpt-5.4-mini";
-const maxBodyBytes = 8 * 1024 * 1024;
+const maxBodyBytes = 18 * 1024 * 1024;
 
 const types = {
   ".html": "text/html;charset=utf-8",
@@ -66,18 +66,21 @@ function cleanTitle(value) {
     .trim()
     .split(/\r?\n/)[0]
     .replace(/[\u3002.,\uff0c;\uff1b]+$/g, "")
-    .slice(0, 20);
+    .slice(0, 32);
 }
 
 function titlePrompt() {
   return [
-    "You identify Costco Canada price tags.",
-    "Read the English product name on this single price tag and return one concise Simplified Chinese product title for a Xiaohongshu image label.",
-    "Do not include brand, model number, item number, or price.",
-    "Keep useful pack count, quantity, flavor, size, or capacity.",
+    "You identify Costco Canada products from photos.",
+    "You may receive one or two images: first the product photo, second the price tag. If only one image is provided, use that image.",
+    "When both images are provided, cross-check the visible product/package text with the price tag product name.",
+    "Return one concise Simplified Chinese product title for a Xiaohongshu image label.",
+    "Do not include price, item number, discount, rating, or marketing claims.",
+    "Preserve important visible brand, series, model, pack count, quantity, flavor, size, capacity, and electronics specs when they distinguish the product.",
+    "Do not simplify electronics to generic words like 手机, 笔记本电脑, 电脑, 平板, 耳机, 显示器, or 相机 if a model or series is visible.",
     "Never return only a package count such as 3-pack. Include the product type too.",
-    "Example: SWEET DREAMS LIP OIL MASK 3 Pack -> \u5507\u90e8\u6cb9\u819c3\u4ef6\u88c5.",
-    "Return only the Chinese product title, maximum 12 Chinese characters when possible. If unreadable, return an empty string."
+    "Examples: SWEET DREAMS LIP OIL MASK 3 Pack -> \u5507\u90e8\u6cb9\u819c3\u4ef6\u88c5; Samsung Galaxy A35 5G -> Samsung Galaxy A35 5G手机.",
+    "Return only the Chinese product title. If unreadable, return an empty string."
   ].join("\n");
 }
 
@@ -105,12 +108,25 @@ async function callOpenAI(content, maxOutputTokens) {
   return data;
 }
 
-async function recognizeOneTitle(image) {
-  const data = await callOpenAI([
-    { type: "input_text", text: titlePrompt() },
-    { type: "input_image", image_url: image, detail: "high" }
-  ], 80);
+async function recognizeOneTitle(image, productImage = "") {
+  const content = [{ type: "input_text", text: titlePrompt() }];
+  if (productImage) content.push({ type: "input_image", image_url: productImage, detail: "high" });
+  if (image) content.push({ type: "input_image", image_url: image, detail: "high" });
+  const data = await callOpenAI(content, 120);
   return cleanTitle(extractOutputText(data));
+}
+
+function normalizeTitleImagePair(value) {
+  if (typeof value === "string") return { image: value, productImage: "" };
+  if (!value || typeof value !== "object") return { image: "", productImage: "" };
+  return {
+    image: String(value.image || value.priceImage || ""),
+    productImage: String(value.productImage || "")
+  };
+}
+
+function isImageDataUrl(value) {
+  return !value || value.startsWith("data:image/");
 }
 
 async function handleGenerateTitle(req, res) {
@@ -130,12 +146,13 @@ async function handleGenerateTitle(req, res) {
   try {
     const body = await readJson(req);
     const image = String(body.image || "");
-    if (!image.startsWith("data:image/")) {
+    const productImage = String(body.productImage || "");
+    if (!image.startsWith("data:image/") || !isImageDataUrl(productImage)) {
       sendJson(res, 400, { error: messages.noPrice });
       return;
     }
 
-    sendJson(res, 200, { title: await recognizeOneTitle(image), model });
+    sendJson(res, 200, { title: await recognizeOneTitle(image, productImage), model });
   } catch (error) {
     sendJson(res, error.status || 500, { error: error.message || messages.aiFailed });
   }
@@ -157,13 +174,13 @@ async function handleGenerateTitles(req, res) {
 
   try {
     const body = await readJson(req);
-    const images = Array.isArray(body.images) ? body.images.slice(0, 9).map(String) : [];
-    if (!images.length || images.some((image) => !image.startsWith("data:image/"))) {
+    const images = Array.isArray(body.images) ? body.images.slice(0, 9).map(normalizeTitleImagePair) : [];
+    if (!images.length || images.some(({ image, productImage }) => !image.startsWith("data:image/") || !isImageDataUrl(productImage))) {
       sendJson(res, 400, { error: messages.noGroupPrices });
       return;
     }
 
-    const titles = await Promise.all(images.map((image) => recognizeOneTitle(image)));
+    const titles = await Promise.all(images.map(({ image, productImage }) => recognizeOneTitle(image, productImage)));
     sendJson(res, 200, { titles, model });
   } catch (error) {
     sendJson(res, error.status || 500, { error: error.message || messages.batchFailed });
