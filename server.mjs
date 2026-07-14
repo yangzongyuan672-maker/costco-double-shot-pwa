@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 4173);
 const apiKey = process.env.OPENAI_API_KEY;
-const model = process.env.OPENAI_MODEL || "gpt-5.4-mini";
+const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const maxBodyBytes = 18 * 1024 * 1024;
 
 const types = {
@@ -74,13 +74,15 @@ function titlePrompt() {
     "You identify Costco Canada products from photos.",
     "You may receive one or two images: first the product photo, second the price tag. If only one image is provided, use that image.",
     "When both images are provided, cross-check the visible product/package text with the price tag product name.",
-    "Return one concise Simplified Chinese product title for a Xiaohongshu image label.",
+    "Return one short, simple Simplified Chinese product title for a yellow image label.",
     "Do not include price, item number, discount, rating, or marketing claims.",
-    "Preserve important visible brand, series, model, pack count, quantity, flavor, size, capacity, and electronics specs when they distinguish the product.",
-    "Do not simplify electronics to generic words like 手机, 笔记本电脑, 电脑, 平板, 耳机, 显示器, or 相机 if a model or series is visible.",
-    "Never return only a package count such as 3-pack. Include the product type too.",
-    "Examples: SWEET DREAMS LIP OIL MASK 3 Pack -> \u5507\u90e8\u6cb9\u819c3\u4ef6\u88c5; Samsung Galaxy A35 5G -> Samsung Galaxy A35 5G手机.",
-    "Return only the Chinese product title. If unreadable, return an empty string."
+    "Prefer a simple product-category translation, not a detailed long translation.",
+    "Keep only a visible brand or model when it is needed to identify the product.",
+    "Include simple quantity words only when they are clearly useful, such as 2\u74f6, 3\u4ef6, 45\u5305.",
+    "If the product type is unclear but an English brand is visible, return only that English brand.",
+    "If neither product type nor brand is readable, return an empty string.",
+    "Examples: Dove Antiperspirant Spray 3 x 107g -> Dove\u6b62\u6c57\u55b7\u96fe3\u4ef6; Samsung Galaxy Tab -> \u4e09\u661f\u5e73\u677f; Q-TIPS Cotton Swabs 2000 -> \u68c9\u7b7e2000\u652f.",
+    "Return only the label text."
   ].join("\n");
 }
 
