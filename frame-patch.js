@@ -215,10 +215,10 @@
   HTMLCanvasElement.prototype.toBlob = function patchedToBlob(callback, type, quality) {
     try {
       const ctx = this.getContext("2d");
-      if (ctx && this.width === 800 && this.height === 600) {
+      if (ctx && this.width === 600 && this.height === 800) {
         decorateCard(ctx, this.width, this.height);
       }
-      if (ctx && this.width === 1600 && this.height === 1200) {
+      if (ctx && this.width === 1200 && this.height === 1600) {
         decorateGrid(ctx, this.width, this.height);
       }
     } catch {
