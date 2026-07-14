@@ -1,11 +1,11 @@
-const DB_NAME = "costco-double-shot-db";
+const DB_NAME = "costco-double-shot-v2-db";
 const DB_VERSION = 1;
 const STORE = "kv";
 const STATE_KEY = "state";
-const CARD_W = 414;
-const CARD_H = 553;
-const GRID_W = 1242;
-const GRID_H = 1660;
+const CARD_W = 800;
+const CARD_H = 600;
+const GRID_W = 1600;
+const GRID_H = 1200;
 const GRID_GAP = 0;
 const GRID_PAD = 0;
 const WATERMARK_H = 0;
@@ -29,7 +29,6 @@ let db;
 let state = structuredClone(initialState);
 let objectUrls = new Set();
 let toastTimer;
-let cameraStream = null;
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -157,8 +156,8 @@ function renderHome() {
     <main class="app-shell">
       <header class="topbar">
         <div class="brand">
-          <h1>Costco 双拍采集器</h1>
-          <p>商品图 + 价格牌，自动合成九宫格</p>
+          <h1>Costco 双拍 V2</h1>
+          <p>系统相机采集，商品取底部方图，价格牌取顶部三分之一</p>
         </div>
         <div class="pill">本地保存</div>
       </header>
@@ -309,8 +308,8 @@ function renderCapture() {
     await saveState();
     render();
   });
-  $("#productShot").addEventListener("click", () => startCameraCapture("productBlob"));
-  $("#priceShot").addEventListener("click", () => startCameraCapture("priceBlob"));
+  $("#productShot").addEventListener("click", () => openSystemCamera("productBlob"));
+  $("#priceShot").addEventListener("click", () => openSystemCamera("priceBlob"));
   $("#productInput").addEventListener("change", (event) => handlePhoto("productBlob", event.target.files[0]));
   $("#priceInput").addEventListener("change", (event) => handlePhoto("priceBlob", event.target.files[0]));
   $("#note").addEventListener("input", async (event) => {
@@ -324,7 +323,9 @@ function renderCapture() {
 
 async function handlePhoto(slot, file) {
   if (!file) return;
-  const normalized = await normalizeImage(file, slot === "productBlob" ? 1800 : 1600);
+  const normalized = slot === "productBlob"
+    ? await normalizeSquareImage(file, 1800)
+    : await normalizePriceImage(file, 1600);
   await setPhotoSlot(slot, normalized, true);
 }
 
@@ -335,7 +336,7 @@ async function setPhotoSlot(slot, blob, autoNext) {
     state.draft.cardBlob = null;
     await saveState();
     render();
-    if (autoNext) setTimeout(() => startCameraCapture("priceBlob"), 180);
+    if (autoNext) setTimeout(() => openSystemCamera("priceBlob"), 180);
     return;
   }
   await regenerateDraftCard();
@@ -343,224 +344,8 @@ async function setPhotoSlot(slot, blob, autoNext) {
   render();
 }
 
-async function startCameraCapture(slot) {
-  if (!navigator.mediaDevices?.getUserMedia) {
-    showToast("当前浏览器不支持网页相机，已打开系统相机");
-    $(slot === "productBlob" ? "#productInput" : "#priceInput")?.click();
-    return;
-  }
-
-  stopCameraStream();
-  const isPrice = slot === "priceBlob";
-  const modal = document.createElement("div");
-  modal.className = "camera-modal";
-  modal.innerHTML = `
-    <div class="camera-stage ${isPrice ? "price-mode" : "product-mode"}">
-      <video id="cameraVideo" autoplay playsinline muted></video>
-      <div class="camera-mask"></div>
-      <div class="camera-frame"></div>
-      <div class="camera-hint">${isPrice ? "把价格牌、英文名和价格放进框内" : "把商品主体放进框内"}</div>
-    </div>
-    <div class="camera-zoom">
-      <button class="zoom-pill active" data-zoom="1" type="button">1x</button>
-      <button class="zoom-pill" data-zoom="2" type="button">2x</button>
-      <button class="zoom-pill" data-zoom="3" type="button">3x</button>
-    </div>
-    <div class="camera-zoom-status" id="cameraZoomStatus">1x 原始画面</div>
-    <div class="camera-controls">
-      <button class="btn ghost" id="closeCamera" type="button">取消</button>
-      <button class="btn primary" id="snapCamera" type="button">拍摄</button>
-      <button class="btn ghost" id="fallbackCamera" type="button">系统相机备用</button>
-    </div>
-  `;
-  document.body.appendChild(modal);
-
-  const video = modal.querySelector("#cameraVideo");
-  try {
-    cameraStream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: "environment" },
-        width: { ideal: 2560 },
-        height: { ideal: 1440 }
-      },
-      audio: false
-    });
-    video.srcObject = cameraStream;
-    await video.play();
-    syncCameraFrame(video, modal, isPrice);
-    modal._syncCameraFrame = () => syncCameraFrame(video, modal, isPrice);
-    window.addEventListener("resize", modal._syncCameraFrame);
-    window.addEventListener("orientationchange", modal._syncCameraFrame);
-  } catch (error) {
-    closeCameraModal(modal);
-    showToast("网页相机打不开，已打开系统相机备用");
-    $(isPrice ? "#priceInput" : "#productInput")?.click();
-    return;
-  }
-
-  modal.querySelector("#closeCamera").addEventListener("click", () => closeCameraModal(modal));
-  modal.querySelectorAll("[data-zoom]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const zoom = Number(button.dataset.zoom || 1);
-      await setCameraZoom(video, zoom, modal.querySelector("#cameraZoomStatus"));
-      modal.querySelectorAll("[data-zoom]").forEach((item) => item.classList.toggle("active", item === button));
-    });
-  });
-  modal.querySelector("#fallbackCamera").addEventListener("click", () => {
-    closeCameraModal(modal);
-    $(isPrice ? "#priceInput" : "#productInput")?.click();
-  });
-  modal.querySelector("#snapCamera").addEventListener("click", async () => {
-    try {
-      const blob = await captureFrameFromVideo(video, modal.querySelector(".camera-frame"), isPrice ? 1600 : 1800);
-      closeCameraModal(modal);
-      await setPhotoSlot(slot, blob, true);
-    } catch (error) {
-      alert(error.message || "拍摄失败，请重试");
-    }
-  });
-}
-
-async function setCameraZoom(video, zoom, status) {
-  const track = cameraStream?.getVideoTracks?.()[0];
-  let appliedZoom = 1;
-  let canZoom = false;
-
-  if (track?.getCapabilities && track.applyConstraints) {
-    const capabilities = track.getCapabilities();
-    if (typeof capabilities.zoom === "object") {
-      const min = Number(capabilities.zoom.min || 1);
-      const max = Number(capabilities.zoom.max || zoom);
-      const step = Number(capabilities.zoom.step || 0.1);
-      appliedZoom = Math.max(min, Math.min(zoom, max));
-      appliedZoom = Math.round(appliedZoom / step) * step;
-      try {
-        await track.applyConstraints({ advanced: [{ zoom: appliedZoom }] });
-        canZoom = true;
-      } catch {
-        appliedZoom = 1;
-      }
-    }
-  }
-
-  video.style.transform = "none";
-  if (!status) return;
-  if (canZoom) {
-    const label = appliedZoom.toFixed(1).replace(/\.0$/, "");
-    status.textContent = `${label}x 相机变焦`;
-  } else {
-    status.textContent = "当前浏览器不支持相机变焦，保持1x原始画面";
-  }
-}
-
-function closeCameraModal(modal) {
-  if (modal?._syncCameraFrame) {
-    window.removeEventListener("resize", modal._syncCameraFrame);
-    window.removeEventListener("orientationchange", modal._syncCameraFrame);
-  }
-  stopCameraStream();
-  modal?.remove();
-}
-
-function stopCameraStream() {
-  cameraStream?.getTracks().forEach((track) => track.stop());
-  cameraStream = null;
-}
-
-async function captureFrameFromVideo(video, frame, maxSide) {
-  if (!video.videoWidth || !video.videoHeight) throw new Error("相机还没准备好，请再点一次拍摄");
-
-  const videoRect = renderedVideoRect(video);
-  const frameRect = frameContentRect(frame);
-  const cropRect = intersectRects(videoRect, frameRect);
-  if (!cropRect) throw new Error("取景框没有对准相机画面，请调整后再拍");
-
-  const sx = ((cropRect.left - videoRect.left) / videoRect.width) * video.videoWidth;
-  const sy = ((cropRect.top - videoRect.top) / videoRect.height) * video.videoHeight;
-  const sw = (cropRect.width / videoRect.width) * video.videoWidth;
-  const sh = (cropRect.height / videoRect.height) * video.videoHeight;
-  const outputScale = Math.min(1, maxSide / Math.max(sw, sh));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(sw * outputScale);
-  canvas.height = Math.round(sh * outputScale);
-  const ctx = canvas.getContext("2d", { alpha: false });
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-  return canvasToBlob(canvas, 0.94);
-}
-
-function renderedVideoRect(video) {
-  const rect = video.getBoundingClientRect();
-  const videoRatio = video.videoWidth / video.videoHeight;
-  const boxRatio = rect.width / rect.height;
-  if (boxRatio > videoRatio) {
-    const height = rect.height;
-    const width = height * videoRatio;
-    return {
-      left: rect.left + (rect.width - width) / 2,
-      top: rect.top,
-      width,
-      height
-    };
-  }
-  const width = rect.width;
-  const height = width / videoRatio;
-  return {
-    left: rect.left,
-    top: rect.top + (rect.height - height) / 2,
-    width,
-    height
-  };
-}
-
-function intersectRects(a, b) {
-  const left = Math.max(a.left, b.left);
-  const top = Math.max(a.top, b.top);
-  const right = Math.min(a.left + a.width, b.left + b.width);
-  const bottom = Math.min(a.top + a.height, b.top + b.height);
-  if (right <= left || bottom <= top) return null;
-  return { left, top, width: right - left, height: bottom - top };
-}
-
-function frameContentRect(frame) {
-  const rect = frame.getBoundingClientRect();
-  const style = getComputedStyle(frame);
-  const leftBorder = parseFloat(style.borderLeftWidth) || 0;
-  const rightBorder = parseFloat(style.borderRightWidth) || 0;
-  const topBorder = parseFloat(style.borderTopWidth) || 0;
-  const bottomBorder = parseFloat(style.borderBottomWidth) || 0;
-  return {
-    left: rect.left + leftBorder,
-    top: rect.top + topBorder,
-    width: Math.max(1, rect.width - leftBorder - rightBorder),
-    height: Math.max(1, rect.height - topBorder - bottomBorder)
-  };
-}
-
-function syncCameraFrame(video, modal, isPrice) {
-  if (!video.videoWidth || !video.videoHeight) return;
-  const frame = modal.querySelector(".camera-frame");
-  const hint = modal.querySelector(".camera-hint");
-  const stageRect = modal.querySelector(".camera-stage").getBoundingClientRect();
-  const videoRect = renderedVideoRect(video);
-  const ratio = isPrice ? 414 / 194 : 414 / 359;
-  const maxWidth = isPrice ? 680 : 440;
-  const width = Math.max(220, Math.min(maxWidth, videoRect.width * 0.94, videoRect.height * 0.78 * ratio));
-  const height = width / ratio;
-  const centerX = videoRect.left - stageRect.left + videoRect.width / 2;
-  const centerY = videoRect.top - stageRect.top + videoRect.height / 2;
-
-  frame.style.width = `${width}px`;
-  frame.style.height = `${height}px`;
-  frame.style.left = `${centerX}px`;
-  frame.style.top = `${centerY}px`;
-
-  if (hint) {
-    hint.style.left = `${centerX}px`;
-    hint.style.top = `${Math.min(stageRect.height - 44, centerY + height / 2 + 10)}px`;
-    hint.style.width = `${width}px`;
-  }
+async function openSystemCamera(slot) {
+  $(slot === "productBlob" ? "#productInput" : "#priceInput")?.click();
 }
 
 async function regenerateDraftCard() {
@@ -732,20 +517,40 @@ async function clearTask() {
   showToast("当前任务已清空");
 }
 
-async function normalizeImage(blob, maxSide) {
+async function normalizeSquareImage(blob, maxSide) {
   const bitmap = await createImageBitmap(blob);
-  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
-  const width = Math.round(bitmap.width * scale);
-  const height = Math.round(bitmap.height * scale);
+  const side = Math.min(bitmap.width, bitmap.height);
+  const sx = Math.round((bitmap.width - side) / 2);
+  const sy = Math.round(bitmap.height - side);
+  const outputSide = Math.round(Math.min(maxSide, side));
   const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
+  canvas.width = outputSide;
+  canvas.height = outputSide;
   const ctx = canvas.getContext("2d", { alpha: false });
   ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, width, height);
-  ctx.drawImage(bitmap, 0, 0, width, height);
+  ctx.fillRect(0, 0, outputSide, outputSide);
+  ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, outputSide, outputSide);
   bitmap.close?.();
-  return canvasToBlob(canvas, 0.92);
+  return canvasToBlob(canvas, 0.96);
+}
+
+async function normalizePriceImage(blob, maxSide) {
+  const bitmap = await createImageBitmap(blob);
+  const squareSide = Math.min(bitmap.width, bitmap.height);
+  const sx = Math.round((bitmap.width - squareSide) / 2);
+  const sy = 0;
+  const cropH = Math.round(squareSide / 3);
+  const outputW = Math.round(Math.min(maxSide, squareSide));
+  const outputH = Math.round(outputW / 3);
+  const canvas = document.createElement("canvas");
+  canvas.width = outputW;
+  canvas.height = outputH;
+  const ctx = canvas.getContext("2d", { alpha: false });
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, outputW, outputH);
+  ctx.drawImage(bitmap, sx, sy, squareSide, cropH, 0, 0, outputW, outputH);
+  bitmap.close?.();
+  return canvasToBlob(canvas, 0.96);
 }
 
 async function makeProductCard(productBlob, priceBlob) {
@@ -758,7 +563,7 @@ async function makeProductCard(productBlob, priceBlob) {
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, CARD_W, CARD_H);
 
-  const priceH = Math.round(CARD_H * 0.35);
+  const priceH = Math.round(CARD_H / 3);
   const productY = priceH;
   const productH = CARD_H - productY;
 
@@ -778,7 +583,7 @@ async function makeProductCard(productBlob, priceBlob) {
 
   product.close?.();
   price.close?.();
-  return canvasToBlob(canvas, 0.9);
+  return canvasToBlob(canvas, 0.95);
 }
 
 async function makeGrid(items) {
@@ -808,7 +613,7 @@ async function makeGrid(items) {
     }
   }
 
-  return canvasToBlob(canvas, 0.92);
+  return canvasToBlob(canvas, 0.95);
 }
 
 function drawCover(ctx, bitmap, x, y, width, height, focusX = 0.5, focusY = 0.5) {
