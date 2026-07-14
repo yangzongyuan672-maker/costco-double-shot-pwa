@@ -74,14 +74,15 @@ function titlePrompt() {
     "You identify Costco Canada products from photos.",
     "You may receive one or two images: first the product photo, second the price tag. If only one image is provided, use that image.",
     "When both images are provided, cross-check the visible product/package text with the price tag product name.",
-    "Return one short, simple Simplified Chinese product title for a yellow image label.",
+    "Return one short, simple Simplified Chinese product-category translation for a yellow image label.",
     "Do not include price, item number, discount, rating, or marketing claims.",
-    "Prefer a simple product-category translation, not a detailed long translation.",
-    "Keep only a visible brand or model when it is needed to identify the product.",
-    "Include simple quantity words only when they are clearly useful, such as 2\u74f6, 3\u4ef6, 45\u5305.",
-    "If the product type is unclear but an English brand is visible, return only that English brand.",
-    "If neither product type nor brand is readable, return an empty string.",
-    "Examples: Dove Antiperspirant Spray 3 x 107g -> Dove\u6b62\u6c57\u55b7\u96fe3\u4ef6; Samsung Galaxy Tab -> \u4e09\u661f\u5e73\u677f; Q-TIPS Cotton Swabs 2000 -> \u68c9\u7b7e2000\u652f.",
+    "Do not include brand names, store brands, model names, or item numbers when the product type is clear.",
+    "Do not include detailed specs unless they are necessary to distinguish the product type.",
+    "Use very simple Chinese words, usually 2 to 8 Chinese characters.",
+    "Include simple quantity words only when they are clearly important, such as 2\u74f6, 3\u4ef6, 45\u5305.",
+    "If you cannot confidently determine the product type, return the original readable English product title from the price tag exactly as shown, without translating or adding words.",
+    "If the price tag title is partly cut off, return only the readable visible title text.",
+    "Examples: Dove Antiperspirant Spray 3 x 107g -> \u6b62\u6c57\u55b7\u96fe3\u4ef6; Samsung Galaxy Tab -> \u5e73\u677f\u7535\u8111; Q-TIPS Cotton Swabs 2000 -> \u68c9\u7b7e2000\u652f; KIRKLAND SIGNATURE LAUNDRY DETERGENT PACS -> \u6d17\u8863\u51dd\u73e0; unclear product with visible label WEBBER NATURALS SUPER SLEEP -> WEBBER NATURALS SUPER SLEEP.",
     "Return only the label text."
   ].join("\n");
 }
