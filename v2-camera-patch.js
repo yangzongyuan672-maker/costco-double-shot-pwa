@@ -1,16 +1,24 @@
 (() => {
   const MARK = "v2Processed";
+  const TITLE_TEXT = "Costco 双拍 V2";
+  const SUBTITLE_TEXT = "系统相机 1:1 采集，价格牌取上三分之一";
+
+  function setTextIfNeeded(element, text) {
+    if (element && element.textContent !== text) element.textContent = text;
+  }
 
   function showV2Brand() {
-    const title = document.querySelector(".brand h1");
-    const subtitle = document.querySelector(".brand p");
-    if (title) title.textContent = "Costco 双拍 V2";
-    if (subtitle) subtitle.textContent = "系统相机 1:1 采集，价格牌取上三分之一";
+    setTextIfNeeded(document.querySelector(".brand h1"), TITLE_TEXT);
+    setTextIfNeeded(document.querySelector(".brand p"), SUBTITLE_TEXT);
   }
 
   function canvasToFile(canvas, name) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error("照片处理失败，请重拍"));
+          return;
+        }
         resolve(new File([blob], name, { type: "image/jpeg" }));
       }, "image/jpeg", 0.94);
     });
@@ -85,4 +93,5 @@
     subtree: true
   });
   document.addEventListener("DOMContentLoaded", showV2Brand);
+  showV2Brand();
 })();
