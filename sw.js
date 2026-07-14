@@ -3,6 +3,7 @@ const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css",
+  "./v2-camera-patch.js",
   "./frame-patch.js",
   "./app.js",
   "./manifest.webmanifest",
