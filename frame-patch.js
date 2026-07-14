@@ -5,8 +5,8 @@
   const TITLE_YELLOW = "#facc15";
   const GRID_PINK = "#ff4fa3";
   const TEXT_DARK = "#111827";
-  const TITLE_INSET_X = 38;
-  const PRICE_RATIO = 0.35;
+  const TITLE_INSET_X = 64;
+  const PRICE_RATIO = 1 / 3;
 
   function getTitles() {
     try {
@@ -170,7 +170,7 @@
   document.addEventListener("DOMContentLoaded", installCaptureEnhancements);
 
   function decorateCard(ctx, width, height) {
-    const titleH = Math.round(height * 0.085);
+    const titleH = Math.round(height * 0.075);
     const splitY = Math.round(height * PRICE_RATIO);
     drawTitleBar(
       ctx,
@@ -215,10 +215,10 @@
   HTMLCanvasElement.prototype.toBlob = function patchedToBlob(callback, type, quality) {
     try {
       const ctx = this.getContext("2d");
-      if (ctx && this.width === 414 && this.height === 553) {
+      if (ctx && this.width === 800 && this.height === 600) {
         decorateCard(ctx, this.width, this.height);
       }
-      if (ctx && this.width === 1242 && this.height === 1660) {
+      if (ctx && this.width === 1600 && this.height === 1200) {
         decorateGrid(ctx, this.width, this.height);
       }
     } catch {
